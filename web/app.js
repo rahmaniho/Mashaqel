@@ -66,6 +66,15 @@ function fmt(value, digits = 0) {
   return formatter.format(Number(value));
 }
 
+const ASCII_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+
+function localizeDigits(value) {
+  if (value === null || value === undefined) return '';
+  const text = String(value);
+  if (state.digits !== 'fa') return text;
+  return text.replace(/[0-9]/g, (digit) => ASCII_DIGITS[Number(digit)]).replace(/,/g, '٬');
+}
+
 function selectValue(select, fallback = '') {
   if (!select) return fallback;
   if (select.value !== undefined && select.value !== null && select.value !== '') return select.value;
@@ -317,7 +326,7 @@ function renderWage(result) {
 
   const details = `
     <div class="card">
-      <h3 class="card-title">ریز محاسبه — دوره ${escapeHtml(result.periodYearMonth)} (${fmt(result.payableDays)} روز، نسخه ${escapeHtml(result.parameterVersion)})</h3>
+      <h3 class="card-title">ریز محاسبه — دوره ${escapeHtml(localizeDigits(result.periodYearMonth))} (${fmt(result.payableDays)} روز، نسخه ${escapeHtml(localizeDigits(result.parameterVersion))})</h3>
       ${categories
         .map((category) => {
           const rows = result.breakdown.filter((line) => line.category === category && (line.monthly || line.daily));
@@ -339,7 +348,7 @@ function renderWage(result) {
                         <td class="num">${line.daily !== undefined ? fmt(line.daily) : '—'}</td>
                         <td class="num">${fmt(line.monthly)}</td>
                         <td><code>${escapeHtml(line.formula)}</code></td>
-                        <td class="desc">${escapeHtml(line.note ?? '')}</td>
+                        <td class="desc">${escapeHtml(localizeDigits(line.note ?? ''))}</td>
                       </tr>`,
                       )
                       .join('')}
@@ -1044,7 +1053,7 @@ function renderEval(result, match) {
                     <div class="small muted">${escapeHtml(sub.factorName)}</div></td>
                   <td class="num">${fmt(sub.maxScore)}</td>
                   <td class="num"><strong>${fmt(sub.points, 1)}</strong></td>
-                  <td class="desc">${escapeHtml(sub.selectionDescription)}</td>
+                  <td class="desc">${escapeHtml(localizeDigits(sub.selectionDescription))}</td>
                   <td>${chip(sub.validityStatus)}</td>
                 </tr>`,
               )
