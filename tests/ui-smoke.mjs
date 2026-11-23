@@ -83,7 +83,7 @@ const contains = (label, haystack, needle) => assert(label, haystack.includes(ne
 
 const navItems = [...document.querySelectorAll('.nav-item')];
 assert('منوی کناری: ۱۲ بخش', navItems.length === 12, String(navItems.length));
-assert('منوی کناری: ۹ بخش فعال', navItems.filter((item) => !item.disabled).length === 9, String(navItems.filter((item) => !item.disabled).length));
+assert('منوی کناری: ۱۰ بخش فعال', navItems.filter((item) => !item.disabled).length === 10, String(navItems.filter((item) => !item.disabled).length));
 assert(
   'بخش «شناسنامه فرمول‌ها و اسناد قانونی» پنهان شده است',
   document.querySelector('#view-reference') === null && !document.body.innerHTML.includes('شناسنامه فرمول') && !document.body.innerHTML.includes('بانک قوانین'),
@@ -627,6 +627,125 @@ click('.nav-item[data-route="employees"]');
 const deleteTarget = [...document.querySelectorAll('#emp-table tbody tr')].find((row) => row.textContent.includes('EMP-2002'));
 deleteTarget?.querySelector('button[data-action="delete"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
 assert('حذف کارمند', employeesStore().length === 3, String(employeesStore().length));
+
+
+/* ------------------- فاز ۸: حقوق ماهانه و محاسبه معوقات ------------------- */
+
+const PAY_SCHEME = 'SERVICE_COMPANIES_NATIONWIDE';
+const cumulativeFor = (years, asOfDate) =>
+  core.computeCumulativeSeniority(data, { schemeCode: PAY_SCHEME, yearsOfService: years, asOfDate }).amount ?? 0;
+const expectedPayrollWage = ({ group, years, accumulated = 0, period = '1405-01', married = true, children = 0 }) =>
+  core.computeWage(data, {
+    schemeCode: PAY_SCHEME,
+    jobGroup: group,
+    priorAccumulatedDailySeniority: accumulated,
+    priorOtherFixedDailyWage: 0,
+    serviceYearsInWorkshop: years,
+    payableDays: 30,
+    isMarried: married,
+    eligibleChildrenCount: children,
+    includeWelfareBenefits: true,
+    computationDate: `${period}-01`,
+    periodYearMonth: period,
+  });
+
+click('.nav-item[data-route="payroll"]');
+click('.subtab[data-subtab="payroll"]');
+assert('حقوق ماهانه: زیرتب فعال شد', document.querySelector('#sub-payroll')?.classList.contains('is-active'));
+assert('حقوق ماهانه: ۱۲ دوره', document.querySelectorAll('#pr-period option').length === 12, String(document.querySelectorAll('#pr-period option').length));
+
+click('#pr-calc');
+assert('حقوق ماهانه: دو فیش (کارمند بدون گروه حذف شد)', payrollRowsCount() === 2, String(payrollRowsCount()));
+function payrollRowsCount() {
+  return [...document.querySelectorAll('#pr-table tbody tr')].filter((row) => row.textContent.includes('EMP-')).length;
+}
+contains('حقوق ماهانه: پیام', text('#pr-msg'), 'کارمند');
+contains('حقوق ماهانه: شمارش فیش', text('#pr-count'), '۲ فیش');
+const employeeOnePay = expectedPayrollWage({ group: 14, years: 7, accumulated: 200000, period: '1405-01' });
+const payrollRowOne = [...document.querySelectorAll('#pr-table tbody tr')].find((row) => row.textContent.includes('EMP-1001'));
+assert('حقوق ماهانه: مزد شغل گروه ۱۴', payrollRowOne?.textContent?.includes(fa(employeeOnePay.monthlyJobWage)), payrollRowOne?.textContent?.slice(0, 80));
+assert('حقوق ماهانه: خالص فیش', payrollRowOne?.textContent?.includes(fa(employeeOnePay.netPayable)), payrollRowOne?.textContent?.slice(0, 120));
+assert('حقوق ماهانه: رشد مزد شغل', payrollRowOne?.textContent?.includes('٪'), payrollRowOne?.textContent?.slice(-60));
+const employeeTwoPay = expectedPayrollWage({ group: 10, years: 3, accumulated: cumulativeFor(3, '1405-01-01'), period: '1405-01' });
+contains('حقوق ماهانه: جمع خالص', text('#pr-summary'), fa(employeeOnePay.netPayable + employeeTwoPay.netPayable));
+
+payrollRowOne?.querySelector('button[data-detail="0"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+assert('حقوق ماهانه: جزئیات فیش', document.querySelector('#pr-detail-card')?.hidden === false);
+contains('حقوق ماهانه: ریز مؤلفه‌ها', text('#pr-detail'), 'مزد شغل');
+contains('حقوق ماهانه: فرمول', text('#pr-detail'), 'FRM-JOB-WAGE-1405');
+assert('حقوق ماهانه: چاپ و خروجی', document.querySelector('#pr-print') !== null && document.querySelector('#pr-export') !== null);
+let payrollExportOk = true;
+try {
+  click('#pr-export');
+} catch {
+  payrollExportOk = false;
+}
+assert('حقوق ماهانه: خروجی CSV بدون خطا', payrollExportOk);
+
+/* ------------------------------ معوقات ------------------------------ */
+
+const arrearsNav = document.querySelector('.nav-item[data-route="arrears"]');
+assert('معوقات: آیتم منو فعال شد', arrearsNav?.disabled === false && arrearsNav?.querySelector('.nav-badge') === null);
+click('.nav-item[data-route="arrears"]');
+assert('مسیریابی به معوقات', document.querySelector('#view-arrears')?.classList.contains('is-active'));
+assert('معوقات: فهرست کارکنان', document.querySelectorAll('#ar-employee option').length === 3, String(document.querySelectorAll('#ar-employee option').length));
+
+const arrearsBase = expectedPayrollWage({ group: 14, years: 7, accumulated: 200000, period: '1405-01' });
+const arrearsGroup15 = expectedPayrollWage({ group: 15, years: 7, accumulated: 200000, period: '1405-02' });
+const arrearsGroup15Month1 = expectedPayrollWage({ group: 15, years: 7, accumulated: 200000, period: '1405-01' });
+
+setSelect('#ar-from', '1405-01');
+setSelect('#ar-to', '1405-03');
+setSelect('#ar-group-to', '15');
+setSelect('#ar-group-effective', '1405-02');
+setField('ar-increase', 0);
+click('#ar-calc');
+const arrearsRows = [...document.querySelectorAll('#ar-table tbody tr')];
+assert('معوقات: سه ردیف ماه', arrearsRows.length === 4, String(arrearsRows.length));
+const farvardinRow = arrearsRows.find((row) => row.textContent.includes('فروردین'));
+assert('معوقات: ماه اول بدون تغییر', farvardinRow?.textContent?.includes('بدون تغییر مؤثر'), farvardinRow?.textContent?.slice(0, 80));
+const ordibeheshtRow = arrearsRows.find((row) => row.textContent.includes('اردیبهشت'));
+assert('معوقات: ارتقای گروه از اردیبهشت', ordibeheshtRow?.textContent?.includes('ارتقا به گروه ۱۵'), ordibeheshtRow?.textContent?.slice(0, 90));
+const expectedDiff = arrearsGroup15.grossTotal - arrearsBase.grossTotal;
+assert('معوقات: مابه‌التفاوت اردیبهشت', ordibeheshtRow?.textContent?.includes(fa(expectedDiff)), `${fa(expectedDiff)} | ${ordibeheshtRow?.textContent?.slice(0, 120)}`);
+contains('معوقات: شاخص جمع استحقاقی', text('#ar-summary'), 'جمع مزد استحقاقی');
+contains('معوقات: جمع مابه‌التفاوت', text('#ar-summary'), 'مابه‌التفاوت');
+
+setSelect('#ar-increase-effective', '1405-03');
+setField('ar-increase', 10);
+click('#ar-calc');
+const khordadRow = [...document.querySelectorAll('#ar-table tbody tr')].find((row) => row.textContent.includes('خرداد'));
+assert('معوقات: افزایش بخشنامه در خرداد', khordadRow?.textContent?.includes('افزایش ۱۰'), khordadRow?.textContent?.slice(0, 110));
+const expectedKhordad = core.roundMoney(arrearsGroup15Month1.wageSubtotal * 1.1) + arrearsGroup15Month1.welfareSubtotal;
+assert('معوقات: استحقاقی خرداد با افزایش', khordadRow?.textContent?.includes(fa(expectedKhordad)), `${fa(expectedKhordad)} | ${khordadRow?.textContent?.slice(0, 140)}`);
+const expectedTotal = expectedKhordad - arrearsBase.grossTotal;
+assert('معوقات: مابه‌التفاوت خرداد', khordadRow?.textContent?.includes(fa(expectedTotal)), `${fa(expectedTotal)}`);
+
+khordadRow?.querySelector('button[data-ar-detail]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+assert('معوقات: جزئیات ماه', document.querySelector('#ar-detail-card')?.hidden === false);
+contains('معوقات: ریز فرمول', text('#ar-detail'), 'FRM-JOB-WAGE-1405');
+contains('معوقات: توضیح افزایش', text('#ar-detail'), 'افزایش');
+
+setSelect('#ar-to', '1405-01');
+setSelect('#ar-from', '1405-03');
+click('#ar-calc');
+assert('معوقات: بازه نامعتبر رد شد', text('#ar-error').includes('بازه دوره'), text('#ar-error'));
+setSelect('#ar-from', '1405-01');
+setSelect('#ar-to', '1405-03');
+setField('ar-increase', 150);
+click('#ar-calc');
+assert('معوقات: درصد افزایش نامعتبر رد شد', text('#ar-error').includes('درصد افزایش'), text('#ar-error'));
+setField('ar-increase', 10);
+click('#ar-calc');
+
+let arrearsExportOk = true;
+try {
+  click('#ar-export');
+} catch {
+  arrearsExportOk = false;
+}
+assert('معوقات: خروجی CSV بدون خطا', arrearsExportOk);
+assert('معوقات: چاپ موجود است', document.querySelector('#ar-print') !== null);
 
 /* -------------------------- حقوق و دستمزد و ارقام -------------------------- */
 

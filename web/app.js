@@ -169,6 +169,7 @@ function writeStore(patch) {
     renderGroupJobsComparison();
     renderOrgView();
     renderEmployeesView();
+    renderArrearsView();
     renderSettingsMeta();
   }
 }
@@ -214,6 +215,11 @@ const ROUTES = {
     title: 'مدیریت کارکنان',
     subtitle: 'پرونده پرسنلی، قرارداد، جایگاه سازمانی، داده مزد و تاریخچه ارتقا',
     view: 'view-employees',
+  },
+  arrears: {
+    title: 'محاسبه معوقات',
+    subtitle: 'مابه‌التفاوت مزد استحقاقی و پرداختی، ماه‌به‌ماه با تغییرات مؤثر تاریخ‌دار',
+    view: 'view-arrears',
   },
   jobs: {
     title: 'بانک مشاغل',
@@ -276,6 +282,7 @@ function navigate(route, options = {}) {
   if (target === 'dashboard') renderDashboard();
   if (target === 'org') renderOrgView();
   if (target === 'employees') renderEmployeesView();
+  if (target === 'arrears') renderArrearsView();
   if (target === 'jobs') renderJobsView();
   if (target === 'evaluation') renderEvalJobOptions();
   if (target === 'group') renderGroupJobsComparison();
@@ -3963,6 +3970,705 @@ function downloadTextFile(filename, content, mime) {
   }
 }
 
+
+/* ====================== حقوق ماهانه کارکنان و معوقات ====================== */
+
+const JALALI_MONTH_NAMES = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+
+const payrollState = { rows: [], period: '1405-01' };
+let arrearsState = { rows: [], employeeId: null, from: '1405-01', to: '1405-03' };
+
+function periodLabel(period) {
+  const [year, month] = String(period ?? '').split('-').map(Number);
+  if (!year || !month || month < 1 || month > 12) return String(period ?? '—');
+  return `${JALALI_MONTH_NAMES[month - 1]} ${localizeDigits(String(year))}`;
+}
+
+function periodsForYear(year = 1405) {
+  return Array.from({ length: 12 }, (_, index) => `${year}-${String(index + 1).padStart(2, '0')}`);
+}
+
+function periodsBetween(from, to) {
+  const [fromYear, fromMonth] = String(from).split('-').map(Number);
+  const [toYear, toMonth] = String(to).split('-').map(Number);
+  if (!fromYear || !fromMonth || !toYear || !toMonth) return [];
+  const result = [];
+  let year = fromYear;
+  let month = fromMonth;
+  while (year < toYear || (year === toYear && month <= toMonth)) {
+    result.push(`${year}-${String(month).padStart(2, '0')}`);
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+    if (result.length > 60) break;
+  }
+  return result;
+}
+
+function employeePayrollGroup(employee) {
+  if (!employee) return null;
+  if (employee.group) return Number(employee.group);
+  const job = employeeJob(employee);
+  const approval = normalizeApproval(job?.evaluation);
+  return approval?.finalGroup ?? job?.evaluation?.proposedGroup ?? null;
+}
+
+function payrollSchemeCode() {
+  const select = document.getElementById('pr-scheme');
+  const value = selectValue(select, '');
+  if (value) return value;
+  const schemes = core.listWageSchemes(state.data ?? { wageTables: [] });
+  const preferred = schemes.find((scheme) => scheme.schemeCode === 'SERVICE_COMPANIES_NATIONWIDE');
+  return preferred?.schemeCode ?? schemes[0]?.schemeCode ?? 'SERVICE_COMPANIES_NATIONWIDE';
+}
+
+function payrollInputFor(employee, period, { schemeCode, days = 30, group } = {}) {
+  const jobGroup = group ?? employeePayrollGroup(employee);
+  if (!jobGroup) return null;
+  const service = employeeServiceYears(employee);
+  const computationDate = `${period}-01`;
+  const cumulative = Number(employee.priorAccumulatedSeniority || 0)
+    || core.computeCumulativeSeniority(state.data, { schemeCode, yearsOfService: service, asOfDate: computationDate }).amount
+    || 0;
+  return {
+    schemeCode,
+    jobGroup,
+    priorAccumulatedDailySeniority: cumulative,
+    priorOtherFixedDailyWage: Number(employee.otherDailyComponents || 0),
+    serviceYearsInWorkshop: service,
+    payableDays: days,
+    isMarried: employee.maritalStatus === 'MARRIED',
+    eligibleChildrenCount: Number(employee.childrenCount || 0),
+    includeWelfareBenefits: true,
+    computationDate,
+    periodYearMonth: period,
+  };
+}
+
+function computeEmployeePayroll(employee, period, options) {
+  const input = payrollInputFor(employee, period, options);
+  if (!input) return { employee, error: 'گروه شغلی تعیین نشده است.' };
+  try {
+    const result = core.computeWage(state.data, input);
+    const priorTable = core.findWageTable(state.data, {
+      schemeCode: input.schemeCode,
+      fiscalYear: input.computationDate.slice(0, 4) - 1,
+      group: input.jobGroup,
+      asOfDate: input.computationDate,
+    });
+    const priorMonthlyJobWage = priorTable ? core.roundMoney(priorTable.dailyJobWage * input.payableDays) : null;
+    const growthPct = priorMonthlyJobWage ? ((result.monthlyJobWage - priorMonthlyJobWage) / priorMonthlyJobWage) * 100 : null;
+    const mismatch = employee.dailyJobWage > 0 && Math.abs(employee.dailyJobWage - result.dailyJobWage) > 1;
+    return { employee, group: input.jobGroup, result, priorMonthlyJobWage, growthPct, mismatch };
+  } catch (error) {
+    return { employee, error: error.message };
+  }
+}
+
+function initPayrollMonthly() {
+  const periodSelect = document.getElementById('pr-period');
+  if (periodSelect) {
+    periodSelect.innerHTML = periodsForYear(1405)
+      .map((period) => `<option value="${period}">${periodLabel(period)}</option>`)
+      .join('');
+    setElementValue(periodSelect, payrollState.period);
+  }
+  const schemeSelect = document.getElementById('pr-scheme');
+  if (schemeSelect) {
+    const schemes = core.listWageSchemes(state.data ?? { wageTables: [] });
+    schemeSelect.innerHTML = schemes
+      .map((scheme) => `<option value="${scheme.schemeCode}">${escapeHtml(scheme.schemeTitle)}</option>`)
+      .join('');
+    const preferred = schemes.some((scheme) => scheme.schemeCode === 'SERVICE_COMPANIES_NATIONWIDE')
+      ? 'SERVICE_COMPANIES_NATIONWIDE'
+      : schemes[0]?.schemeCode;
+    setElementValue(schemeSelect, preferred ?? '');
+  }
+  const calc = document.getElementById('pr-calc');
+  if (calc) calc.addEventListener('click', () => computeMonthlyPayroll());
+  const print = document.getElementById('pr-print');
+  if (print) {
+    print.addEventListener('click', () => {
+      if (typeof window.print === 'function') window.print();
+    });
+  }
+  const exportButton = document.getElementById('pr-export');
+  if (exportButton) exportButton.addEventListener('click', () => exportPayrollCsv());
+  const close = document.getElementById('pr-detail-close');
+  if (close) {
+    close.addEventListener('click', () => {
+      const card = document.getElementById('pr-detail-card');
+      if (card) card.hidden = true;
+    });
+  }
+  const table = document.getElementById('pr-table');
+  if (table) {
+    table.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-detail]');
+      if (!button) return;
+      const index = Number(button.dataset.detail);
+      renderPayrollDetail(index);
+    });
+  }
+}
+
+function computeMonthlyPayroll() {
+  const message = document.getElementById('pr-msg');
+  const period = selectValue(document.getElementById('pr-period'), '1405-01');
+  const days = Number(document.getElementById('pr-days').value || 30);
+  const schemeCode = payrollSchemeCode();
+  const employees = workshopEmployees();
+  if (employees.length === 0) {
+    if (message) message.textContent = 'کارمندی برای محاسبه ثبت نشده است.';
+    renderPayrollTable();
+    return;
+  }
+  if (!(days >= 1 && days <= 31)) {
+    if (message) message.textContent = 'روزهای قابل پرداخت باید بین ۱ و ۳۱ باشد.';
+    return;
+  }
+  const rows = [];
+  const skipped = [];
+  for (const employee of employees) {
+    const outcome = computeEmployeePayroll(employee, period, { schemeCode, days });
+    if (outcome.error) skipped.push(`${employee.firstName} ${employee.lastName}: ${outcome.error}`);
+    else rows.push(outcome);
+  }
+  payrollState.rows = rows;
+  payrollState.period = period;
+  if (message) {
+    message.textContent = [
+      rows.length > 0 ? `حقوق ${fmt(rows.length)} کارمند برای ${periodLabel(period)} محاسبه شد.` : 'هیچ کارمندی قابل محاسبه نبود.',
+      ...skipped.slice(0, 3),
+    ].join(' ');
+    message.dataset.state = rows.length > 0 ? 'ok' : 'error';
+  }
+  renderPayrollSummary();
+  renderPayrollTable();
+  showToast('حقوق ماهانه محاسبه شد');
+}
+
+function renderPayrollSummary() {
+  const target = document.getElementById('pr-summary');
+  const counter = document.getElementById('pr-count');
+  if (!target) return;
+  const rows = payrollState.rows;
+  if (counter) counter.textContent = `${fmt(rows.length)} فیش — ${periodLabel(payrollState.period)}`;
+  if (rows.length === 0) {
+    target.innerHTML = '';
+    return;
+  }
+  const sum = (key) => rows.reduce((total, row) => total + Number(row.result[key] || 0), 0);
+  const cards = [
+    ['جمع مزد و مزایای مزدی', fmt(sum('wageSubtotal'))],
+    ['جمع مزایای رفاهی', fmt(sum('welfareSubtotal'))],
+    ['جمع کسور (بیمه و مالیات)', fmt(sum('workerInsurance') + sum('tax'))],
+    ['جمع خالص پرداختی', fmt(sum('netPayable'))],
+  ];
+  target.innerHTML = `<div class="summary-grid">${cards
+    .map(([label, value]) => `<div class="summary-card"><span class="label">${label}</span><span class="value">${value}</span></div>`)
+    .join('')}</div>`;
+}
+
+function renderPayrollTable() {
+  const table = document.getElementById('pr-table');
+  if (!table) return;
+  const rows = payrollState.rows;
+  const empty = document.getElementById('pr-empty');
+  if (empty) empty.hidden = rows.length > 0 || workshopEmployees().length > 0;
+  if (rows.length === 0) {
+    table.innerHTML = `
+      <tbody>
+        <tr><td><div class="empty-state">برای مشاهده فیش‌ها، دوره را انتخاب و دکمه «محاسبه حقوق ماه» را بزنید. کارمندان بدون گروه شغلی در محاسبه نمی‌آیند.</div></td></tr>
+      </tbody>`;
+    return;
+  }
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.jobWage += row.result.monthlyJobWage;
+      acc.seniority += row.result.monthlySeniorityWage;
+      acc.baseWage += row.result.monthlyBaseWage;
+      acc.allowances += row.result.overtimePay + row.result.shiftPay + row.result.nightWorkPay + row.result.otherWageAllowances;
+      acc.welfare += row.result.welfareSubtotal;
+      acc.insurance += row.result.workerInsurance;
+      acc.tax += row.result.tax;
+      acc.net += row.result.netPayable;
+      return acc;
+    },
+    { jobWage: 0, seniority: 0, baseWage: 0, allowances: 0, welfare: 0, insurance: 0, tax: 0, net: 0 },
+  );
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>کد پرسنلی</th><th>نام</th><th>گروه</th><th>مزد شغل</th><th>پایه سنوات</th><th>مزد مبنا</th>
+        <th>فوق‌العاده‌ها</th><th>مزایای رفاهی</th><th>بیمه</th><th>مالیات</th><th>خالص</th><th>رشد مزد شغل</th><th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows
+        .map((row, index) => {
+          const result = row.result;
+          const growth = row.growthPct === null ? '—' : `${row.growthPct >= 0 ? '+' : ''}${fmt(row.growthPct, 1)}٪`;
+          return `<tr>
+            <td class="num" dir="ltr">${escapeHtml(row.employee.personnelCode)}</td>
+            <td>
+              <strong>${escapeHtml(`${row.employee.firstName} ${row.employee.lastName}`.trim())}</strong>
+              ${row.mismatch ? '<div class="chip st-2">مغایرت مزد ثبت‌شده با جدول</div>' : ''}
+            </td>
+            <td class="num">${fmt(row.group)}</td>
+            <td class="num">${fmt(result.monthlyJobWage)}</td>
+            <td class="num">${fmt(result.monthlySeniorityWage)}</td>
+            <td class="num">${fmt(result.monthlyBaseWage)}</td>
+            <td class="num">${fmt(result.overtimePay + result.shiftPay + result.nightWorkPay + result.otherWageAllowances)}</td>
+            <td class="num">${fmt(result.welfareSubtotal)}</td>
+            <td class="num">${fmt(-result.workerInsurance)}</td>
+            <td class="num">${result.tax === 0 ? '۰ (بدون پلکان)' : fmt(-result.tax)}</td>
+            <td class="num"><strong>${fmt(result.netPayable)}</strong></td>
+            <td class="num">${growth}</td>
+            <td class="actions-cell no-print">
+              <button type="button" class="ghost-btn small" data-detail="${index}">جزئیات</button>
+            </td>
+          </tr>`;
+        })
+        .join('')}
+      <tr>
+        <td colspan="3"><strong>جمع</strong></td>
+        <td class="num"><strong>${fmt(totals.jobWage)}</strong></td>
+        <td class="num"><strong>${fmt(totals.seniority)}</strong></td>
+        <td class="num"><strong>${fmt(totals.baseWage)}</strong></td>
+        <td class="num"><strong>${fmt(totals.allowances)}</strong></td>
+        <td class="num"><strong>${fmt(totals.welfare)}</strong></td>
+        <td class="num"><strong>${fmt(-totals.insurance)}</strong></td>
+        <td class="num"><strong>${fmt(-totals.tax)}</strong></td>
+        <td class="num"><strong>${fmt(totals.net)}</strong></td>
+        <td></td><td class="no-print"></td>
+      </tr>
+    </tbody>`;
+}
+
+function renderPayrollDetail(index) {
+  const row = payrollState.rows[index];
+  const card = document.getElementById('pr-detail-card');
+  const body = document.getElementById('pr-detail');
+  const title = document.getElementById('pr-detail-title');
+  if (!row || !card || !body) return;
+  card.hidden = false;
+  if (title) {
+    title.textContent = `جزئیات فیش — ${row.employee.firstName} ${row.employee.lastName} — ${periodLabel(payrollState.period)}`;
+  }
+  const result = row.result;
+  body.innerHTML = `
+    <div class="mini-results">
+      <div class="summary-card is-accent"><span class="label">خالص پرداختی</span><span class="value">${fmt(result.netPayable)}</span></div>
+      <div class="summary-card"><span class="label">نسخه پارامترها</span><span class="value">${escapeHtml(result.parameterVersion ?? '—')}</span></div>
+      <div class="summary-card is-neutral"><span class="label">سابقه مؤثر</span><span class="value">${fmt(employeeServiceYears(row.employee), 1)} سال</span></div>
+      <div class="summary-card is-neutral"><span class="label">روزهای پرداخت</span><span class="value">${fmt(result.payableDays)}</span></div>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table profile-table">
+        <thead><tr><th>مؤلفه</th><th>دسته</th><th>روزانه</th><th>ماهانه</th><th>فرمول</th><th>مبنا</th></tr></thead>
+        <tbody>
+          ${(result.breakdown ?? [])
+            .map(
+              (line) => `<tr>
+                <td>${escapeHtml(line.title)}</td>
+                <td>${escapeHtml(CATEGORY_LABELS[line.category] ?? line.category ?? '')}</td>
+                <td class="num">${line.daily !== undefined ? fmt(line.daily) : '—'}</td>
+                <td class="num">${fmt(line.monthly)}</td>
+                <td><code dir="ltr">${escapeHtml(line.formula ?? '')}</code></td>
+                <td class="small muted">${escapeHtml(line.note ?? '')}</td>
+              </tr>`,
+            )
+            .join('')}
+          <tr>
+            <td colspan="3"><strong>مجموع دریافتی</strong></td>
+            <td class="num"><strong>${fmt(result.grossTotal)}</strong></td>
+            <td colspan="2" class="small muted">مزد و مزایای مزدی ${fmt(result.wageSubtotal)} + مزایای رفاهی ${fmt(result.welfareSubtotal)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    ${(result.warnings ?? []).length > 0
+      ? `<div class="warnings"><h4>هشدارهای محاسبه</h4><ul>${result.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join('')}</ul></div>`
+      : ''}`;
+}
+
+function exportPayrollCsv() {
+  const rows = payrollState.rows;
+  if (rows.length === 0) {
+    showToast('ابتدا حقوق ماه را محاسبه کنید.');
+    return false;
+  }
+  const header = ['personnelCode', 'name', 'group', 'jobWage', 'seniority', 'baseWage', 'allowances', 'welfare', 'insurance', 'tax', 'net', 'period'];
+  const lines = [
+    header.join(','),
+    ...rows.map((row) =>
+      [
+        row.employee.personnelCode,
+        `${row.employee.firstName} ${row.employee.lastName}`,
+        row.group,
+        row.result.monthlyJobWage,
+        row.result.monthlySeniorityWage,
+        row.result.monthlyBaseWage,
+        row.result.overtimePay + row.result.shiftPay + row.result.nightWorkPay + row.result.otherWageAllowances,
+        row.result.welfareSubtotal,
+        row.result.workerInsurance,
+        row.result.tax,
+        row.result.netPayable,
+        payrollState.period,
+      ]
+        .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
+        .join(','),
+    ),
+  ];
+  const ok = downloadTextFile('payroll.csv', lines.join('\r\n'), 'text/csv;charset=utf-8');
+  if (ok) showToast('خروجی CSV حقوق ماهانه آماده شد');
+  return ok;
+}
+
+/* ------------------------------ معوقات ------------------------------ */
+
+function arrearsSchemeCode() {
+  const schemes = core.listWageSchemes(state.data ?? { wageTables: [] });
+  const preferred = schemes.find((scheme) => scheme.schemeCode === 'SERVICE_COMPANIES_NATIONWIDE');
+  return preferred?.schemeCode ?? schemes[0]?.schemeCode ?? 'SERVICE_COMPANIES_NATIONWIDE';
+}
+
+function initArrears() {
+  const fromSelect = document.getElementById('ar-from');
+  const toSelect = document.getElementById('ar-to');
+  const months = [...periodsForYear(1405), ...periodsForYear(1406)];
+  const optionsHtml = months.map((period) => `<option value="${period}">${periodLabel(period)}</option>`).join('');
+  for (const select of [fromSelect, toSelect]) {
+    if (select) select.innerHTML = optionsHtml;
+  }
+  if (fromSelect) setElementValue(fromSelect, arrearsState.from);
+  if (toSelect) setElementValue(toSelect, arrearsState.to);
+
+  for (const id of ['ar-group-effective', 'ar-increase-effective']) {
+    const select = document.getElementById(id);
+    if (select) select.innerHTML = optionsHtml;
+  }
+  if (document.getElementById('ar-group-effective')) setElementValue(document.getElementById('ar-group-effective'), arrearsState.from);
+  if (document.getElementById('ar-increase-effective')) setElementValue(document.getElementById('ar-increase-effective'), arrearsState.from);
+
+  const groupSelect = document.getElementById('ar-group-to');
+  if (groupSelect) {
+    groupSelect.innerHTML =
+      '<option value="">— بدون تغییر گروه —</option>' +
+      Array.from({ length: 20 }, (_, index) => {
+        const group = index + 1;
+        return `<option value="${group}">گروه ${fmt(group)}</option>`;
+      }).join('');
+  }
+
+  const employeeSelect = document.getElementById('ar-employee');
+  if (employeeSelect) {
+    employeeSelect.addEventListener('change', () => {
+      arrearsState.employeeId = selectValue(employeeSelect, '');
+      const employee = employeeById(arrearsState.employeeId);
+      const group = employeePayrollGroup(employee);
+      const groupTo = document.getElementById('ar-group-to');
+      if (groupTo && group) setElementValue(groupTo, String(group));
+    });
+  }
+
+  const calc = document.getElementById('ar-calc');
+  if (calc) calc.addEventListener('click', () => computeArrears());
+  const print = document.getElementById('ar-print');
+  if (print) {
+    print.addEventListener('click', () => {
+      if (typeof window.print === 'function') window.print();
+    });
+  }
+  const exportButton = document.getElementById('ar-export');
+  if (exportButton) exportButton.addEventListener('click', () => exportArrearsCsv());
+  const close = document.getElementById('ar-detail-close');
+  if (close) {
+    close.addEventListener('click', () => {
+      const card = document.getElementById('ar-detail-card');
+      if (card) card.hidden = true;
+    });
+  }
+  const table = document.getElementById('ar-table');
+  if (table) {
+    table.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-ar-detail]');
+      if (!button) return;
+      renderArrearsDetail(Number(button.dataset.arDetail));
+    });
+  }
+
+  renderArrearsView();
+}
+
+function renderArrearsView() {
+  const workspace = document.getElementById('ar-workspace');
+  const empty = document.getElementById('ar-empty-workshop');
+  if (!workspace || !empty) return;
+  const employees = workshopEmployees();
+  const hasWorkshop = Boolean(activeWorkshop());
+  empty.hidden = hasWorkshop;
+  workspace.hidden = !hasWorkshop;
+  if (!hasWorkshop) return;
+
+  const select = document.getElementById('ar-employee');
+  if (select) {
+    const previous = arrearsState.employeeId || selectValue(select, '');
+    select.innerHTML =
+      employees.length === 0
+        ? '<option value="">— کارمندی ثبت نشده —</option>'
+        : employees
+            .map((employee) => {
+              const group = employeePayrollGroup(employee);
+              return `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.personnelCode)} — ${escapeHtml(`${employee.firstName} ${employee.lastName}`.trim())}${group ? ` (گروه ${fmt(group)})` : ' (بدون گروه)'}</option>`;
+            })
+            .join('');
+    const next = employees.some((employee) => employee.id === previous) ? previous : employees[0]?.id ?? '';
+    setElementValue(select, next);
+    arrearsState.employeeId = next;
+  }
+}
+
+function computeArrears() {
+  const errorTarget = document.getElementById('ar-error');
+  const employee = employeeById(arrearsState.employeeId || selectValue(document.getElementById('ar-employee'), ''));
+  const from = selectValue(document.getElementById('ar-from'), '1405-01');
+  const to = selectValue(document.getElementById('ar-to'), '1405-03');
+  const groupToRaw = selectValue(document.getElementById('ar-group-to'), '');
+  const groupEffective = selectValue(document.getElementById('ar-group-effective'), from);
+  const increasePct = Number(document.getElementById('ar-increase').value || 0);
+  const increaseEffective = selectValue(document.getElementById('ar-increase-effective'), from);
+  const paidOverrideRaw = document.getElementById('ar-paid').value;
+
+  const problems = [];
+  if (!employee) problems.push('ابتدا یک کارمند انتخاب کنید.');
+  if (!from || !to || from > to) problems.push('بازه دوره معتبر نیست؛ دوره شروع باید پیش از پایان باشد.');
+  const months = from <= to ? periodsBetween(from, to) : [];
+  if (months.length === 0) problems.push('بازه دوره خالی است.');
+  if (months.length > 24) problems.push('حداکثر بازه محاسبه معوقات ۲۴ ماه است.');
+  if (!(increasePct >= 0 && increasePct <= 100)) problems.push('درصد افزایش باید بین ۰ و ۱۰۰ باشد.');
+  const currentGroup = employeePayrollGroup(employee);
+  if (employee && !currentGroup) problems.push('برای این کارمند گروه شغلی تعیین نشده است.');
+  const groupTo = groupToRaw ? Number(groupToRaw) : currentGroup;
+  if (groupToRaw && !(groupTo >= 1 && groupTo <= 20)) problems.push('گروه جدید باید بین ۱ و ۲۰ باشد.');
+  if (problems.length > 0) {
+    if (errorTarget) errorTarget.textContent = problems.join(' ');
+    return;
+  }
+  if (errorTarget) errorTarget.textContent = '';
+
+  const schemeCode = arrearsSchemeCode();
+  const paidOverride = paidOverrideRaw === '' ? null : Math.max(0, Number(paidOverrideRaw));
+  if (paidOverride !== null && (!Number.isFinite(paidOverride) || paidOverride < 0)) {
+    if (errorTarget) errorTarget.textContent = 'مبلغ پرداختی معتبر نیست.';
+    return;
+  }
+
+  const rows = [];
+  try {
+    for (const period of months) {
+      const groupChanged = period >= groupEffective && groupTo !== currentGroup;
+      const effectiveGroup = groupChanged ? groupTo : currentGroup;
+      const base = core.computeWage(state.data, payrollInputFor(employee, period, { schemeCode, group: currentGroup }));
+      const entitled = core.computeWage(state.data, payrollInputFor(employee, period, { schemeCode, group: effectiveGroup }));
+      const increaseApplies = increasePct > 0 && period >= increaseEffective;
+      const wageSubtotal = increaseApplies ? core.roundMoney(entitled.wageSubtotal * (1 + increasePct / 100)) : entitled.wageSubtotal;
+      const entitlement = wageSubtotal + entitled.welfareSubtotal;
+      const paid = paidOverride ?? base.grossTotal;
+      const difference = entitlement - paid;
+      rows.push({
+        period,
+        group: effectiveGroup,
+        groupChanged,
+        increaseApplies,
+        increasePct: increaseApplies ? increasePct : 0,
+        jobWage: entitled.monthlyJobWage,
+        seniority: entitled.monthlySeniorityWage,
+        baseWage: entitled.monthlyBaseWage,
+        allowances: entitled.overtimePay + entitled.shiftPay + entitled.nightWorkPay + entitled.otherWageAllowances,
+        welfare: entitled.welfareSubtotal,
+        wageSubtotal,
+        entitlement,
+        paid,
+        difference,
+        base,
+        entitled,
+      });
+    }
+  } catch (error) {
+    if (errorTarget) errorTarget.textContent = `خطای محاسبه: ${error.message}`;
+    return;
+  }
+
+  arrearsState = { ...arrearsState, employeeId: employee.id, from, to, rows };
+  renderArrearsSummary(employee);
+  renderArrearsTable(employee);
+  showToast('معوقات محاسبه شد');
+}
+
+function renderArrearsSummary(employee) {
+  const target = document.getElementById('ar-summary');
+  const counter = document.getElementById('ar-count');
+  const title = document.getElementById('ar-title');
+  if (!target) return;
+  const rows = arrearsState.rows;
+  if (title) {
+    title.textContent = rows.length > 0
+      ? `جدول ماه‌به‌ماه معوقات — ${employee.firstName} ${employee.lastName} (${employee.personnelCode})`
+      : 'جدول ماه‌به‌ماه معوقات';
+  }
+  if (counter) counter.textContent = rows.length > 0 ? `${fmt(rows.length)} ماه` : '';
+  if (rows.length === 0) {
+    target.innerHTML = '';
+    return;
+  }
+  const entitlement = rows.reduce((sum, row) => sum + row.entitlement, 0);
+  const paid = rows.reduce((sum, row) => sum + row.paid, 0);
+  const difference = entitlement - paid;
+  const cards = [
+    ['جمع مزد استحقاقی', fmt(entitlement)],
+    ['جمع مزد پرداختی', fmt(paid)],
+    [`مابه‌التفاوت (${difference >= 0 ? 'بستانکار کارگر' : 'بدهکار کارگر'})`, `${difference < 0 ? '−' : ''}${fmt(Math.abs(difference))}`],
+    ['تعداد ماه', fmt(rows.length)],
+  ];
+  target.innerHTML = `<div class="summary-grid">${cards
+    .map(
+      ([label, value], index) =>
+        `<div class="summary-card ${index === 2 ? 'is-accent' : ''}"><span class="label">${escapeHtml(label)}</span><span class="value">${value}</span></div>`,
+    )
+    .join('')}</div>`;
+}
+
+function renderArrearsTable(employee) {
+  const table = document.getElementById('ar-table');
+  if (!table) return;
+  const rows = arrearsState.rows;
+  if (rows.length === 0) {
+    table.innerHTML = `
+      <tbody><tr><td><div class="empty-state">برای مشاهده معوقات، کارمند و بازه را انتخاب و دکمه «محاسبه معوقات» را بزنید.</div></td></tr></tbody>`;
+    return;
+  }
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.jobWage += row.jobWage;
+      acc.seniority += row.seniority;
+      acc.baseWage += row.baseWage;
+      acc.welfare += row.welfare;
+      acc.entitlement += row.entitlement;
+      acc.paid += row.paid;
+      acc.difference += row.difference;
+      return acc;
+    },
+    { jobWage: 0, seniority: 0, baseWage: 0, welfare: 0, entitlement: 0, paid: 0, difference: 0 },
+  );
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>دوره</th><th>گروه مؤثر</th><th>مزد شغل</th><th>پایه سنوات</th><th>مزد مبنا</th>
+        <th>مزایای رفاهی</th><th>جمع استحقاقی</th><th>پرداختی</th><th>مابه‌التفاوت</th><th>توضیح</th><th class="no-print">جزئیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows
+        .map((row, index) => {
+          const notes = [
+            row.groupChanged ? `ارتقا به گروه ${fmt(row.group)}` : '',
+            row.increaseApplies ? `افزایش ${fmt(row.increasePct, 1)}٪ بخشنامه` : '',
+          ].filter(Boolean).join(' • ') || 'بدون تغییر مؤثر';
+          return `<tr>
+            <td>${escapeHtml(periodLabel(row.period))}</td>
+            <td class="num">${fmt(row.group)}</td>
+            <td class="num">${fmt(row.jobWage)}</td>
+            <td class="num">${fmt(row.seniority)}</td>
+            <td class="num">${fmt(row.baseWage)}</td>
+            <td class="num">${fmt(row.welfare)}</td>
+            <td class="num"><strong>${fmt(row.entitlement)}</strong></td>
+            <td class="num">${fmt(row.paid)}</td>
+            <td class="num ${row.difference < 0 ? 'text-danger' : ''}">${row.difference < 0 ? '−' : ''}${fmt(Math.abs(row.difference))}</td>
+            <td class="small muted">${escapeHtml(notes)}</td>
+            <td class="no-print"><button type="button" class="ghost-btn small" data-ar-detail="${index}">جزئیات</button></td>
+          </tr>`;
+        })
+        .join('')}
+      <tr>
+        <td colspan="2"><strong>جمع</strong></td>
+        <td class="num"><strong>${fmt(totals.jobWage)}</strong></td>
+        <td class="num"><strong>${fmt(totals.seniority)}</strong></td>
+        <td class="num"><strong>${fmt(totals.baseWage)}</strong></td>
+        <td class="num"><strong>${fmt(totals.welfare)}</strong></td>
+        <td class="num"><strong>${fmt(totals.entitlement)}</strong></td>
+        <td class="num"><strong>${fmt(totals.paid)}</strong></td>
+        <td class="num"><strong>${totals.difference < 0 ? '−' : ''}${fmt(Math.abs(totals.difference))}</strong></td>
+        <td colspan="2" class="small muted">${escapeHtml(employee ? `${employee.firstName} ${employee.lastName} — ${employee.personnelCode}` : '')}</td>
+      </tr>
+    </tbody>`;
+}
+
+function renderArrearsDetail(index) {
+  const row = arrearsState.rows[index];
+  const card = document.getElementById('ar-detail-card');
+  const body = document.getElementById('ar-detail');
+  const title = document.getElementById('ar-detail-title');
+  if (!row || !card || !body) return;
+  card.hidden = false;
+  if (title) title.textContent = `جزئیات ${periodLabel(row.period)}`;
+  body.innerHTML = `
+    <div class="mini-results">
+      <div class="summary-card is-accent"><span class="label">مابه‌التفاوت ماه</span><span class="value">${row.difference < 0 ? '−' : ''}${fmt(Math.abs(row.difference))}</span></div>
+      <div class="summary-card"><span class="label">استحقاقی</span><span class="value">${fmt(row.entitlement)}</span></div>
+      <div class="summary-card is-neutral"><span class="label">پرداختی</span><span class="value">${fmt(row.paid)}</span></div>
+      <div class="summary-card is-neutral"><span class="label">گروه مؤثر</span><span class="value">${fmt(row.group)}</span></div>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table profile-table">
+        <thead><tr><th>مؤلفه</th><th>دسته</th><th>ماهانه</th><th>فرمول</th><th>مبنا</th></tr></thead>
+        <tbody>
+          ${(row.entitled.breakdown ?? [])
+            .map(
+              (line) => `<tr>
+                <td>${escapeHtml(line.title)}</td>
+                <td>${escapeHtml(CATEGORY_LABELS[line.category] ?? line.category ?? '')}</td>
+                <td class="num">${fmt(line.monthly)}</td>
+                <td><code dir="ltr">${escapeHtml(line.formula ?? '')}</code></td>
+                <td class="small muted">${escapeHtml(line.note ?? '')}</td>
+              </tr>`,
+            )
+            .join('')}
+        </tbody>
+      </table>
+    </div>
+    <p class="form-note">
+      استحقاقی = مزد و مزایای مزدی${row.increaseApplies ? ` × (۱ + ${fmt(row.increasePct, 1)}٪ افزایش بخشنامه)` : ''} + مزایای رفاهی.
+      پرداختی مبنای مقایسه: ${row.paid === row.base.grossTotal ? 'استحقاقی پرونده بدون تغییرات اعلام‌شده' : 'مبلغ دستی واردشده'}.
+    </p>`;
+}
+
+function exportArrearsCsv() {
+  const rows = arrearsState.rows;
+  if (rows.length === 0) {
+    showToast('ابتدا معوقات را محاسبه کنید.');
+    return false;
+  }
+  const header = ['period', 'group', 'jobWage', 'seniority', 'baseWage', 'welfare', 'entitlement', 'paid', 'difference'];
+  const lines = [
+    header.join(','),
+    ...rows.map((row) =>
+      [row.period, row.group, row.jobWage, row.seniority, row.baseWage, row.welfare, row.entitlement, row.paid, row.difference]
+        .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
+        .join(','),
+    ),
+    ['TOTAL', '', '', '', '', '', rows.reduce((sum, row) => sum + row.entitlement, 0), rows.reduce((sum, row) => sum + row.paid, 0), rows.reduce((sum, row) => sum + row.difference, 0)]
+      .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
+      .join(','),
+  ];
+  const ok = downloadTextFile('arrears.csv', lines.join('\r\n'), 'text/csv;charset=utf-8');
+  if (ok) showToast('خروجی CSV معوقات آماده شد');
+  return ok;
+}
+
 /* ================================== شروع ================================== */
 
 async function boot() {
@@ -3997,6 +4703,8 @@ async function boot() {
   initOrg();
   initJobs();
   initEmployees();
+  initPayrollMonthly();
+  initArrears();
   initSettings();
 
   const printButton = document.getElementById('print-btn');
