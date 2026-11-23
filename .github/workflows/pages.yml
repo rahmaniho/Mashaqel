@@ -10,6 +10,9 @@ on:
       - 'scripts/exportWebData.ts'
       - 'scripts/verify-web-parity.ts'
       - 'tests/ui-smoke.mjs'
+      - 'tests/ui-server-mode.mjs'
+      - 'tests/server.test.mjs'
+      - 'server/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/pages.yml'
@@ -53,8 +56,14 @@ jobs:
       - name: تطبیق عددی هسته مرورگر با موتور
         run: npm run verify:web
 
-      - name: آزمون دودی رابط کاربری وب‌اپ
+      - name: آزمون دودی رابط کاربری وب‌اپ (حالت محلی)
         run: npm run test:web-ui
+
+      - name: آزمون سرور مرکزی (نقش‌ها، زنجیره گزارش، پشتیبان)
+        run: npm run test:server
+
+      - name: آزمون یکپارچه رابط کاربری با سرور مرکزی
+        run: npm run test:web-server
 
       - name: فعال‌سازی Pages (در صورت نیاز و وجود دسترسی)
         uses: actions/configure-pages@v5
