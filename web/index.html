@@ -58,8 +58,8 @@
           <button class="nav-item" data-route="payroll" type="button">
             <span class="nav-icon" aria-hidden="true">﷼</span><span>محاسبات حقوق و دستمزد</span>
           </button>
-          <button class="nav-item" data-route="arrears" type="button" disabled title="فاز ۸ — محاسبه معوقات">
-            <span class="nav-icon" aria-hidden="true">↺</span><span>محاسبه معوقات</span><span class="nav-badge">فاز ۸</span>
+          <button class="nav-item" data-route="arrears" type="button">
+            <span class="nav-icon" aria-hidden="true">↺</span><span>محاسبه معوقات</span>
           </button>
 
           <p class="nav-group-title">سامانه</p>
@@ -75,7 +75,7 @@
         </nav>
 
         <div class="sidebar-footer">
-          <p class="sidebar-note">نسخه <strong>۲٫۵</strong> — فاز ۷ (مدیریت کارکنان)</p>
+          <p class="sidebar-note">نسخه <strong>۲٫۶</strong> — فاز ۸ (حقوق ماهانه و معوقات)</p>
           <p class="sidebar-note small">تمام مبالغ به ریال ایران (IRR)</p>
         </div>
       </aside>
@@ -499,11 +499,87 @@
             </div>
           </section>
 
+
+          <!-- --------------------------- محاسبه معوقات --------------------------- -->
+          <section id="view-arrears" class="view">
+            <div class="panel-head no-print">
+              <div>
+                <h2>محاسبه معوقات و مابه‌التفاوت</h2>
+                <p class="muted">
+                  مابه‌التفاوت هر ماه = <strong>مزد استحقاقی − مزد پرداختی</strong>. تغییرات مؤثرِ تاریخ‌دار (ارتقای گروه،
+                  افزایش بخشنامه) از ماه تعیین‌شده اعمال می‌شود و نتیجه ماه‌به‌ماه، با جزئیات و جمع کل ارائه می‌گردد.
+                </p>
+              </div>
+              <div class="head-actions">
+                <button class="ghost-btn" type="button" id="ar-export">خروجی CSV</button>
+                <button class="ghost-btn" type="button" id="ar-print">چاپ / PDF</button>
+              </div>
+            </div>
+
+            <div id="ar-empty-workshop" class="card" hidden>
+              <div class="empty-state">
+                برای محاسبه معوقات، ابتدا کارگاه و کارمند ثبت کنید.
+                <div style="margin-top: 10px"><button class="primary-btn" type="button" data-route="employees">رفتن به مدیریت کارکنان</button></div>
+              </div>
+            </div>
+
+            <div id="ar-workspace">
+              <div class="card no-print">
+                <h3 class="card-title">پارامترهای محاسبه</h3>
+                <div class="field-grid compact">
+                  <label class="field"><span>کارمند</span><select id="ar-employee"></select></label>
+                  <label class="field"><span>از دوره</span><select id="ar-from"></select></label>
+                  <label class="field"><span>تا دوره</span><select id="ar-to"></select></label>
+                  <label class="field"><span>گروه جدید (ارتقا)</span><select id="ar-group-to"></select></label>
+                  <label class="field"><span>ماه اعمال گروه جدید</span><select id="ar-group-effective"></select></label>
+                  <label class="field"><span>افزایش بخشنامه (٪)</span><input id="ar-increase" type="number" min="0" max="100" step="0.1" value="0" inputmode="decimal" /></label>
+                  <label class="field"><span>ماه اعمال افزایش</span><select id="ar-increase-effective"></select></label>
+                  <label class="field">
+                    <span>پرداختی ماهانه (ریال) — اختیاری</span>
+                    <input id="ar-paid" type="number" min="0" step="1" inputmode="numeric" placeholder="خالی = استحقاقی بدون تغییرات" />
+                  </label>
+                </div>
+                <p class="form-note">
+                  اگر «پرداختی ماهانه» خالی باشد، فرض می‌شود کارفرما هر ماه معادل استحقاقی پرونده (بدون تغییرات اعلام‌شده)
+                  پرداخت کرده است؛ در این حالت مابه‌التفاوت دقیقاً اثر تغییرات است.
+                </p>
+                <div class="form-actions">
+                  <button class="primary-btn" type="button" id="ar-calc">محاسبه معوقات</button>
+                  <span class="form-error" id="ar-error" role="alert"></span>
+                </div>
+              </div>
+
+              <div id="ar-results">
+                <div class="mini-results" id="ar-summary"></div>
+                <div class="card">
+                  <div class="card-head">
+                    <div>
+                      <h3 id="ar-title">جدول ماه‌به‌ماه معوقات</h3>
+                      <p class="muted small">هر ردیف: دوره، گروه مؤثر، اجزای استحقاقی، پرداختی و مابه‌التفاوت؛ ستون «جزئیات» ریز محاسبه همان ماه را نشان می‌دهد.</p>
+                    </div>
+                    <span class="badge badge-soft" id="ar-count"></span>
+                  </div>
+                  <div class="table-wrap tall">
+                    <table class="data-table" id="ar-table"></table>
+                  </div>
+                </div>
+                <div class="card" id="ar-detail-card" hidden>
+                  <div class="card-head">
+                    <h3 id="ar-detail-title">جزئیات ماه</h3>
+                    <button class="ghost-btn" type="button" id="ar-detail-close">بستن</button>
+                  </div>
+                  <div id="ar-detail"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <!-- -------------------------- حقوق و دستمزد --------------------------- -->
           <section id="view-payroll" class="view">
             <div class="subtabs" role="tablist">
               <button class="subtab is-active" data-subtab="wage" type="button" role="tab">ماشین‌حساب مزد ۱۴۰۵</button>
               <button class="subtab" data-subtab="seniority" type="button" role="tab">پایه سنوات</button>
+              <button class="subtab" data-subtab="payroll" type="button" role="tab">حقوق ماهانه کارکنان</button>
             </div>
 
             <div id="sub-wage" class="subview is-active">
@@ -641,6 +717,63 @@
                 <h3 class="card-title">نرخ پایه سنوات روزانه ۱۴۰۵ گروه‌های بیست‌گانه</h3>
                 <div class="table-wrap">
                   <table class="data-table" id="s-rate-table"></table>
+                </div>
+              </div>
+            </div>
+
+            <div id="sub-payroll" class="subview">
+              <div class="panel-head no-print">
+                <div>
+                  <h2>فیش حقوقی ماهانه کارکنان</h2>
+                  <p class="muted">
+                    برای هر کارمند، مزد شغل، پایه سنوات، مزد مبنا، فوق‌العاده‌ها و مزایای رفاهی جداگانه محاسبه و با فرمول‌های
+                    موتور ۱۴۰۵ ردیابی می‌شود. مبنای مزد، جدول مصوب طرح و سابقه و گروه ثبت‌شده در پرونده کارمند است.
+                  </p>
+                </div>
+                <div class="head-actions">
+                  <button class="ghost-btn" type="button" id="pr-export">خروجی CSV</button>
+                  <button class="ghost-btn" type="button" id="pr-print">چاپ فیش‌ها</button>
+                </div>
+              </div>
+
+              <div class="card no-print">
+                <div class="field-grid compact">
+                  <label class="field"><span>دوره حقوقی</span><select id="pr-period"></select></label>
+                  <label class="field"><span>روزهای قابل پرداخت</span><input id="pr-days" type="number" min="1" max="31" step="1" value="30" /></label>
+                  <label class="field"><span>طرح طبقه‌بندی</span><select id="pr-scheme"></select></label>
+                </div>
+                <div class="form-actions">
+                  <button class="primary-btn" type="button" id="pr-calc">محاسبه حقوق ماه</button>
+                  <span class="form-error" id="pr-msg" role="alert"></span>
+                </div>
+              </div>
+
+              <div id="pr-empty" class="card" hidden>
+                <div class="empty-state">
+                  برای محاسبه حقوق ماهانه، ابتدا کارمندانی با گروه شغلی تعیین‌شده ثبت کنید (بخش «مدیریت کارکنان»).
+                </div>
+              </div>
+
+              <div id="pr-results">
+                <div class="mini-results" id="pr-summary"></div>
+                <div class="card">
+                  <div class="card-head">
+                    <div>
+                      <h3>ریز حقوق ماهانه به تفکیک کارمند</h3>
+                      <p class="muted small">هر ستون از یک مؤلفه مستقل موتور محاسبه می‌شود؛ ستون «رشد» مقایسه مزد شغل با ۱۴۰۴ است.</p>
+                    </div>
+                    <span class="badge badge-soft" id="pr-count"></span>
+                  </div>
+                  <div class="table-wrap tall">
+                    <table class="data-table" id="pr-table"></table>
+                  </div>
+                </div>
+                <div class="card" id="pr-detail-card" hidden>
+                  <div class="card-head">
+                    <h3 id="pr-detail-title">جزئیات فیش</h3>
+                    <button class="ghost-btn" type="button" id="pr-detail-close">بستن</button>
+                  </div>
+                  <div id="pr-detail"></div>
                 </div>
               </div>
             </div>

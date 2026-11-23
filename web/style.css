@@ -1538,6 +1538,10 @@ textarea:focus {
 }
 
 
+.text-danger {
+  color: #b42318;
+}
+
 .check-inline {
   display: flex;
   align-items: center;
