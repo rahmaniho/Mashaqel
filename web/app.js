@@ -4637,6 +4637,25 @@ function renderArrearsDetail(index) {
               </tr>`,
             )
             .join('')}
+          ${row.increaseApplies
+            ? `<tr>
+                <td><strong>افزایش بخشنامه ${fmt(row.increasePct, 1)}٪</strong></td>
+                <td>افزایش مزدی</td>
+                <td class="num">${fmt(row.wageSubtotal - row.entitled.wageSubtotal)}</td>
+                <td><code dir="ltr">FRM-WAGE-INCREASE</code></td>
+                <td class="small muted">${escapeHtml(periodLabel(row.period))} — مستند بخشنامه افزایش مزد</td>
+              </tr>`
+            : ''}
+          <tr>
+            <td colspan="2"><strong>جمع استحقاقی ماه</strong></td>
+            <td class="num"><strong>${fmt(row.entitlement)}</strong></td>
+            <td colspan="2" class="small muted">مزد و مزایای مزدی ${fmt(row.wageSubtotal)} + مزایای رفاهی ${fmt(row.welfare)}</td>
+          </tr>
+          <tr>
+            <td colspan="2"><strong>مزد پرداختی ماه</strong></td>
+            <td class="num"><strong>${fmt(row.paid)}</strong></td>
+            <td colspan="2" class="small muted">${escapeHtml(row.paid === row.base.grossTotal ? 'مبنای پیش‌فرض: استحقاقی پرونده بدون تغییرات اعلام‌شده' : 'مبلغ دستی واردشده')}</td>
+          </tr>
         </tbody>
       </table>
     </div>

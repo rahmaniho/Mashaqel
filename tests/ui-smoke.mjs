@@ -725,6 +725,8 @@ khordadRow?.querySelector('button[data-ar-detail]')?.dispatchEvent(new window.Ev
 assert('معوقات: جزئیات ماه', document.querySelector('#ar-detail-card')?.hidden === false);
 contains('معوقات: ریز فرمول', text('#ar-detail'), 'FRM-JOB-WAGE-1405');
 contains('معوقات: توضیح افزایش', text('#ar-detail'), 'افزایش');
+contains('معوقات: ردیف افزایش با شناسه فرمول', text('#ar-detail'), 'FRM-WAGE-INCREASE');
+contains('معوقات: جمع استحقاقی ماه در جزئیات', text('#ar-detail'), fa(expectedKhordad));
 
 setSelect('#ar-to', '1405-01');
 setSelect('#ar-from', '1405-03');
