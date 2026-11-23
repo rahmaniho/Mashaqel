@@ -13,7 +13,7 @@ const state = {
   groupResult: null,
   evalResult: null,
   evalControls: [],
-  store: { workshops: [], activeWorkshopId: null },
+  store: { workshops: [], activeWorkshopId: null, jobs: [] },
 };
 
 const NUMBER_FORMAT = {
@@ -136,13 +136,20 @@ function readStore() {
     return {
       workshops: Array.isArray(parsed?.workshops) ? parsed.workshops : [],
       activeWorkshopId: parsed?.activeWorkshopId ?? null,
+      jobs: Array.isArray(parsed?.jobs) ? parsed.jobs : [],
     };
   } catch {
-    return { workshops: [], activeWorkshopId: null };
+    return { workshops: [], activeWorkshopId: null, jobs: [] };
   }
 }
 
-function writeStore(next) {
+function writeStore(patch) {
+  const next = {
+    workshops: state.store.workshops,
+    activeWorkshopId: state.store.activeWorkshopId,
+    jobs: state.store.jobs ?? [],
+    ...patch,
+  };
   state.store = next;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -150,7 +157,13 @@ function writeStore(next) {
     showToast(`ذخیره‌سازی محلی ناموفق بود: ${error.message}`);
   }
   renderWorkshopPicker();
-  if (state.data) renderDashboard();
+  renderWorkshopTable();
+  if (state.data) {
+    renderDashboard();
+    renderJobsView();
+    renderEvalJobOptions();
+    renderSettingsMeta();
+  }
 }
 
 function newId(prefix) {
@@ -184,6 +197,16 @@ const ROUTES = {
     title: 'مدیریت کارگاه‌ها',
     subtitle: 'تعریف کارگاه، شناسه‌ها و وضعیت اجرای طرح طبقه‌بندی',
     view: 'view-workshops',
+  },
+  jobs: {
+    title: 'بانک مشاغل',
+    subtitle: 'پرونده کامل شغل، شناسنامه قابل چاپ و اتصال به نتیجه ارزیابی',
+    view: 'view-jobs',
+  },
+  'job-profile': {
+    title: 'شناسنامه شغل',
+    subtitle: 'نسخه قابل چاپ پرونده شغل',
+    view: 'view-job-profile',
   },
   payroll: {
     title: 'محاسبات حقوق و دستمزد',
@@ -234,6 +257,8 @@ function navigate(route, options = {}) {
     if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   if (target === 'dashboard') renderDashboard();
+  if (target === 'jobs') renderJobsView();
+  if (target === 'evaluation') renderEvalJobOptions();
 }
 
 function currentHashRoute() {
@@ -311,6 +336,8 @@ function renderDashboard() {
   });
   const params = state.data.annualParameters.find((row) => row.fiscalYear === 1405 && row.version === '1405-v2');
   const systemB = state.data.systems.find((row) => row.code === 'EVAL_1389_POINT_FACTOR');
+  const jobs = workshopJobs();
+  const evaluatedJobs = jobs.filter((job) => job.evaluation).length;
 
   const kpiTarget = document.getElementById('kpi-grid');
   if (!kpiTarget) return;
@@ -331,9 +358,9 @@ function renderDashboard() {
       <span class="kpi-unit">ریال در روز</span>
     </div>
     <div class="kpi">
-      <span class="kpi-label">امتیاز نظری نظام ۱۳۸۹</span>
-      <span class="kpi-value">${fmt(systemB?.maxTheoreticalScore ?? 1137)}</span>
-      <span class="kpi-unit">امتیاز — ۴ عامل، ۱۴ زیرعامل</span>
+      <span class="kpi-label">مشاغل بانک شغل</span>
+      <span class="kpi-value">${fmt(jobs.length)}</span>
+      <span class="kpi-unit">${fmt(evaluatedJobs)} ارزیابی‌شده — امتیاز نظری ${fmt(systemB?.maxTheoreticalScore ?? 1137)}</span>
     </div>`;
 
   const note = document.getElementById('wage-chart-note');
@@ -518,15 +545,20 @@ function initWorkshops() {
         showToast(`کارگاه فعال: ${workshop.workshopName}`);
       }
       if (button.dataset.action === 'delete') {
+        const jobCount = state.store.jobs.filter((job) => job.workshopId === workshop.id).length;
         const confirmed = typeof window.confirm === 'function'
-          ? window.confirm(`حذف کارگاه «${workshop.workshopName}»؟ این عمل قابل بازگشت نیست.`)
+          ? window.confirm(
+              `حذف کارگاه «${workshop.workshopName}»${jobCount > 0 ? ` همراه با ${jobCount} شغل ثبت‌شده آن` : ''}؟ این عمل قابل بازگشت نیست.`,
+            )
           : true;
         if (!confirmed) return;
         const workshops = state.store.workshops.filter((row) => row.id !== workshop.id);
         const activeWorkshopId = state.store.activeWorkshopId === workshop.id ? null : state.store.activeWorkshopId;
-        writeStore({ workshops, activeWorkshopId });
+        const jobs = state.store.jobs.filter((job) => job.workshopId !== workshop.id);
+        writeStore({ workshops, activeWorkshopId, jobs });
         renderWorkshopTable();
-        showToast('کارگاه حذف شد');
+        renderJobsView();
+        showToast('کارگاه و داده‌های وابسته حذف شد');
       }
     });
   }
@@ -712,6 +744,7 @@ function initSettings() {
         writeStore({
           workshops: incoming.workshops,
           activeWorkshopId: incoming.activeWorkshopId ?? null,
+          jobs: Array.isArray(incoming.jobs) ? incoming.jobs : state.store.jobs,
         });
         renderWorkshopTable();
         renderSettingsMeta();
@@ -735,6 +768,7 @@ function initSettings() {
       state.store = readStore();
       renderWorkshopPicker();
       renderWorkshopTable();
+      renderJobsView();
       renderSettingsMeta();
       renderDashboard();
       if (message) message.textContent = 'داده‌های محلی پاک شد.';
@@ -753,6 +787,8 @@ function renderSettingsMeta() {
     ['واحد پول', 'IRR (ریال ایران)'],
     ['زمان تولید داده', new Date(meta.generatedAt).toLocaleString('fa-IR')],
     ['کارگاه‌های ثبت‌شده', fmt(state.store.workshops.length)],
+    ['مشاغل ثبت‌شده', fmt(state.store.jobs.length)],
+    ['مشاغل ارزیابی‌شده', fmt(state.store.jobs.filter((job) => job.evaluation).length)],
     ['کلید ذخیره‌سازی محلی', STORAGE_KEY],
   ];
   target.innerHTML = items
@@ -1216,10 +1252,512 @@ function highlightGroupRow(group) {
   });
 }
 
+/* ================================ بانک مشاغل ================================ */
+
+const JOB_STATUS_LABELS = { ACTIVE: 'فعال', VACANT: 'بلاتصدی', ARCHIVED: 'بایگانی' };
+const jobsFilter = { search: '', unit: '', group: '' };
+let profileJobId = null;
+
+function workshopJobs() {
+  const workshop = activeWorkshop();
+  if (!workshop) return [];
+  return state.store.jobs.filter((job) => job.workshopId === workshop.id);
+}
+
+function jobByCode(code) {
+  return workshopJobs().find((job) => job.jobCode === code) ?? null;
+}
+
+function jobById(id) {
+  return state.store.jobs.find((job) => job.id === id) ?? null;
+}
+
+function initJobs() {
+  const newButton = document.getElementById('job-new');
+  if (newButton) newButton.addEventListener('click', () => openJobForm(null));
+
+  const form = document.getElementById('job-form');
+  if (form) {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      saveJobFromForm();
+    });
+  }
+  for (const id of ['job-cancel', 'job-cancel-2']) {
+    const button = document.getElementById(id);
+    if (button) button.addEventListener('click', () => closeJobForm());
+  }
+
+  const search = document.getElementById('jobs-search');
+  if (search) {
+    search.addEventListener('input', () => {
+      jobsFilter.search = search.value.trim();
+      renderJobsTable();
+    });
+  }
+
+  const unitFilter = document.getElementById('jobs-filter-unit');
+  if (unitFilter) {
+    unitFilter.addEventListener('change', () => {
+      jobsFilter.unit = selectValue(unitFilter, '');
+      renderJobsTable();
+    });
+  }
+  const groupFilter = document.getElementById('jobs-filter-group');
+  if (groupFilter) {
+    groupFilter.addEventListener('change', () => {
+      jobsFilter.group = selectValue(groupFilter, '');
+      renderJobsTable();
+    });
+  }
+
+  const table = document.getElementById('jobs-table');
+  if (table) {
+    table.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const job = jobById(button.dataset.id);
+      if (!job) return;
+      const action = button.dataset.action;
+      if (action === 'profile') openJobProfile(job.id);
+      if (action === 'edit') openJobForm(job);
+      if (action === 'copy') duplicateJob(job);
+      if (action === 'delete') deleteJob(job);
+    });
+  }
+
+  const printList = document.getElementById('jobs-print-list');
+  if (printList) {
+    printList.addEventListener('click', () => {
+      if (typeof window.print === 'function') window.print();
+    });
+  }
+  const profilePrint = document.getElementById('profile-print');
+  if (profilePrint) {
+    profilePrint.addEventListener('click', () => {
+      if (typeof window.print === 'function') window.print();
+    });
+  }
+  const profileBack = document.getElementById('profile-back');
+  if (profileBack) profileBack.addEventListener('click', () => navigate('jobs'));
+
+  renderJobsView();
+}
+
+function renderJobsView() {
+  const workspace = document.getElementById('jobs-workspace');
+  const emptyState = document.getElementById('jobs-empty-workshop');
+  if (!workspace || !emptyState) return;
+  const workshop = activeWorkshop();
+  const hasWorkshop = Boolean(workshop);
+  emptyState.hidden = hasWorkshop;
+  workspace.hidden = !hasWorkshop;
+  if (!hasWorkshop) return;
+  renderJobsFilters();
+  renderJobsTable();
+}
+
+function renderJobsFilters() {
+  const jobs = workshopJobs();
+  const unitSelect = document.getElementById('jobs-filter-unit');
+  if (unitSelect) {
+    const units = [...new Set(jobs.map((job) => job.orgUnit).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fa'));
+    unitSelect.innerHTML =
+      '<option value="">همه واحدها</option>' +
+      units.map((unit) => `<option value="${escapeHtml(unit)}">${escapeHtml(unit)}</option>`).join('');
+    setElementValue(unitSelect, jobsFilter.unit);
+  }
+  const groupSelect = document.getElementById('jobs-filter-group');
+  if (groupSelect) {
+    groupSelect.innerHTML =
+      '<option value="">همه گروه‌ها</option><option value="NONE">بدون ارزیابی</option>' +
+      Array.from({ length: 20 }, (_, index) => {
+        const group = index + 1;
+        return `<option value="${group}">گروه ${fmt(group)}</option>`;
+      }).join('');
+    setElementValue(groupSelect, jobsFilter.group);
+  }
+}
+
+function filteredJobs() {
+  const search = jobsFilter.search;
+  return workshopJobs().filter((job) => {
+    if (jobsFilter.unit && job.orgUnit !== jobsFilter.unit) return false;
+    const group = job.evaluation?.proposedGroup ?? null;
+    if (jobsFilter.group === 'NONE' && group !== null) return false;
+    if (jobsFilter.group && jobsFilter.group !== 'NONE' && String(group) !== jobsFilter.group) return false;
+    if (!search) return true;
+    const haystack = `${job.jobCode} ${job.title} ${job.titleEn} ${job.orgUnit} ${job.supervisorJobCode ?? ''}`.toLowerCase();
+    return haystack.includes(search.toLowerCase());
+  });
+}
+
+function renderJobsTable() {
+  const table = document.getElementById('jobs-table');
+  if (!table) return;
+  const counter = document.getElementById('jobs-count');
+  const rows = filteredJobs();
+  if (counter) {
+    counter.textContent = `${fmt(rows.length)} شغل از ${fmt(workshopJobs().length)}`;
+  }
+  if (rows.length === 0) {
+    table.innerHTML = `
+      <tbody>
+        <tr>
+          <td>
+            <div class="empty-state">
+              ${workshopJobs().length === 0
+                ? 'هنوز شغلی ثبت نشده است. با دکمه «شغل جدید» اولین شناسنامه شغل را بسازید.'
+                : 'شغلی با این فیلترها یافت نشد.'}
+            </div>
+          </td>
+        </tr>
+      </tbody>`;
+    return;
+  }
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>کد شغل</th><th>عنوان شغل</th><th>واحد سازمانی</th><th>سرپرست</th>
+        <th>تعداد نیرو</th><th>امتیاز</th><th>گروه پیشنهادی</th><th>وضعیت</th><th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows
+        .map((job) => {
+          const evaluation = job.evaluation;
+          return `<tr>
+            <td class="num">${escapeHtml(job.jobCode)}</td>
+            <td>
+              <strong>${escapeHtml(job.title)}</strong>
+              ${job.titleEn ? `<div class="small muted" dir="ltr">${escapeHtml(job.titleEn)}</div>` : ''}
+            </td>
+            <td>${escapeHtml(job.orgUnit)}</td>
+            <td class="num">${escapeHtml(job.supervisorJobCode || '—')}</td>
+            <td class="num">${fmt(job.headcount)}</td>
+            <td class="num">${evaluation ? fmt(evaluation.totalScore, 1) : '—'}</td>
+            <td class="num">${evaluation && evaluation.proposedGroup ? fmt(evaluation.proposedGroup) : '—'}</td>
+            <td>${JOB_STATUS_LABELS[job.status] ?? job.status}</td>
+            <td class="actions-cell">
+              <button type="button" class="icon-btn" data-action="profile" data-id="${escapeHtml(job.id)}" title="شناسنامه شغل">▤</button>
+              <button type="button" class="icon-btn" data-action="edit" data-id="${escapeHtml(job.id)}" title="ویرایش">✎</button>
+              <button type="button" class="icon-btn" data-action="copy" data-id="${escapeHtml(job.id)}" title="تکثیر">⧉</button>
+              <button type="button" class="icon-btn" data-action="delete" data-id="${escapeHtml(job.id)}" title="حذف">✕</button>
+            </td>
+          </tr>`;
+        })
+        .join('')}
+    </tbody>`;
+}
+
+function openJobForm(job) {
+  const form = document.getElementById('job-form');
+  if (!form) return;
+  form.hidden = false;
+  const title = document.getElementById('job-form-title');
+  if (title) title.textContent = job ? `ویرایش شغل ${job.jobCode}` : 'شغل جدید';
+  setElementValue(document.getElementById('jf-id'), job?.id ?? '');
+  setElementValue(document.getElementById('jf-code'), job?.jobCode ?? '');
+  setElementValue(document.getElementById('jf-title'), job?.title ?? '');
+  setElementValue(document.getElementById('jf-title-en'), job?.titleEn ?? '');
+  setElementValue(document.getElementById('jf-unit'), job?.orgUnit ?? '');
+  setElementValue(document.getElementById('jf-supervisor'), job?.supervisorJobCode ?? '');
+  setElementValue(document.getElementById('jf-headcount'), job?.headcount ?? 0);
+  setElementValue(document.getElementById('jf-status'), job?.status ?? 'ACTIVE');
+  setElementValue(document.getElementById('jf-objective'), job?.objective ?? '');
+  setElementValue(document.getElementById('jf-duties'), job?.dutiesMain ?? '');
+  setElementValue(document.getElementById('jf-duties-secondary'), job?.dutiesSecondary ?? '');
+  setElementValue(document.getElementById('jf-responsibilities'), job?.responsibilities ?? '');
+  setElementValue(document.getElementById('jf-authorities'), job?.authorities ?? '');
+  setElementValue(document.getElementById('jf-communications'), job?.communications ?? '');
+  setElementValue(document.getElementById('jf-education'), job?.education ?? 'کارشناسی');
+  setElementValue(document.getElementById('jf-field'), job?.fieldOfStudy ?? '');
+  setElementValue(document.getElementById('jf-experience'), job?.experienceYears ?? 0);
+  setElementValue(document.getElementById('jf-knowledge'), job?.knowledge ?? '');
+  setElementValue(document.getElementById('jf-skills'), job?.skills ?? '');
+  setElementValue(document.getElementById('jf-conditions'), job?.workingConditions ?? '');
+  setElementValue(document.getElementById('jf-tools'), job?.tools ?? '');
+  const error = document.getElementById('job-error');
+  if (error) error.textContent = '';
+  form.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+
+function closeJobForm() {
+  const form = document.getElementById('job-form');
+  if (form) form.hidden = true;
+  const error = document.getElementById('job-error');
+  if (error) error.textContent = '';
+}
+
+function saveJobFromForm() {
+  const workshop = activeWorkshop();
+  const errorTarget = document.getElementById('job-error');
+  if (!workshop) {
+    if (errorTarget) errorTarget.textContent = 'ابتدا یک کارگاه انتخاب کنید.';
+    return;
+  }
+  const id = document.getElementById('jf-id').value;
+  const existing = id ? jobById(id) : null;
+  const draft = {
+    id: existing?.id ?? newId('job'),
+    workshopId: workshop.id,
+    jobCode: document.getElementById('jf-code').value.trim(),
+    title: document.getElementById('jf-title').value.trim(),
+    titleEn: document.getElementById('jf-title-en').value.trim(),
+    orgUnit: document.getElementById('jf-unit').value.trim(),
+    supervisorJobCode: document.getElementById('jf-supervisor').value.trim(),
+    headcount: Number(document.getElementById('jf-headcount').value || 0),
+    status: selectValue(document.getElementById('jf-status'), 'ACTIVE'),
+    objective: document.getElementById('jf-objective').value.trim(),
+    dutiesMain: document.getElementById('jf-duties').value.trim(),
+    dutiesSecondary: document.getElementById('jf-duties-secondary').value.trim(),
+    responsibilities: document.getElementById('jf-responsibilities').value.trim(),
+    authorities: document.getElementById('jf-authorities').value.trim(),
+    communications: document.getElementById('jf-communications').value.trim(),
+    education: selectValue(document.getElementById('jf-education'), 'کارشناسی'),
+    fieldOfStudy: document.getElementById('jf-field').value.trim(),
+    experienceYears: Number(document.getElementById('jf-experience').value || 0),
+    knowledge: document.getElementById('jf-knowledge').value.trim(),
+    skills: document.getElementById('jf-skills').value.trim(),
+    workingConditions: document.getElementById('jf-conditions').value.trim(),
+    tools: document.getElementById('jf-tools').value.trim(),
+    version: existing?.version ?? '1.0',
+    evaluation: existing?.evaluation ?? null,
+    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const problems = [];
+  if (!draft.jobCode) problems.push('کد شغل الزامی است.');
+  if (draft.jobCode && !/^[A-Za-z0-9-]{2,24}$/.test(draft.jobCode)) {
+    problems.push('کد شغل باید ۲ تا ۲۴ نویسه لاتین/رقم باشد.');
+  }
+  if (!draft.title) problems.push('عنوان شغل الزامی است.');
+  if (!draft.orgUnit) problems.push('واحد سازمانی الزامی است.');
+  if (!draft.objective) problems.push('هدف شغل الزامی است.');
+  if (!draft.dutiesMain) problems.push('شرح وظایف اصلی الزامی است.');
+  if (
+    draft.jobCode &&
+    workshopJobs().some((job) => job.id !== draft.id && job.jobCode === draft.jobCode)
+  ) {
+    problems.push('این کد شغل در همین کارگاه قبلاً ثبت شده است.');
+  }
+  if (draft.supervisorJobCode && !workshopJobs().some((job) => job.jobCode === draft.supervisorJobCode && job.id !== draft.id)) {
+    problems.push('کد سرپرست مستقیم در بانک مشاغل این کارگاه یافت نشد.');
+  }
+  if (problems.length > 0) {
+    if (errorTarget) errorTarget.textContent = problems.join(' ');
+    return;
+  }
+
+  const jobs = existing
+    ? state.store.jobs.map((job) => (job.id === draft.id ? draft : job))
+    : [...state.store.jobs, draft];
+  writeStore({ ...state.store, jobs });
+  closeJobForm();
+  renderJobsView();
+  showToast(existing ? 'شغل ویرایش شد' : 'شغل جدید ثبت شد');
+}
+
+function duplicateJob(job) {
+  const jobs = workshopJobs();
+  let suffix = 2;
+  let code = `${job.jobCode}-${suffix}`;
+  while (jobs.some((row) => row.jobCode === code)) {
+    suffix += 1;
+    code = `${job.jobCode}-${suffix}`;
+  }
+  const copy = {
+    ...job,
+    id: newId('job'),
+    jobCode: code,
+    title: `${job.title} (تکثیر)`,
+    evaluation: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  writeStore({ ...state.store, jobs: [...state.store.jobs, copy] });
+  renderJobsView();
+  showToast(`شغل تکثیر شد: ${code}`);
+}
+
+function deleteJob(job) {
+  const confirmed = typeof window.confirm === 'function'
+    ? window.confirm(`حذف شغل «${job.title}»؟ این عمل قابل بازگشت نیست.`)
+    : true;
+  if (!confirmed) return;
+  writeStore({ ...state.store, jobs: state.store.jobs.filter((row) => row.id !== job.id) });
+  renderJobsView();
+  showToast('شغل حذف شد');
+}
+
+/* ----------------------------- شناسنامه شغل ----------------------------- */
+
+function openJobProfile(jobId) {
+  profileJobId = jobId;
+  const job = jobById(jobId);
+  if (!job) return;
+  navigate('job-profile', { silent: true });
+  const title = document.getElementById('page-title');
+  if (title) title.textContent = `شناسنامه شغل ${job.jobCode}`;
+  renderJobProfile(job);
+}
+
+function profileSection(number, title, content) {
+  return `
+    <section class="profile-section">
+      <h3><span class="profile-number">${fmt(number)}</span>${escapeHtml(title)}</h3>
+      <div class="profile-content">${content}</div>
+    </section>`;
+}
+
+function multiline(value) {
+  if (!value) return '<span class="muted">— ثبت نشده —</span>';
+  return `<ul class="profile-list">${String(value)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<li>${escapeHtml(line)}</li>`)
+    .join('')}</ul>`;
+}
+
+function renderJobProfile(job) {
+  const target = document.getElementById('job-profile-body');
+  if (!target) return;
+  const workshop = activeWorkshop();
+  const evaluation = job.evaluation;
+  const factors = state.data.factors.filter((row) => row.systemCode === 'EVAL_1389_POINT_FACTOR');
+  const systemB = state.data.systems.find((row) => row.code === 'EVAL_1389_POINT_FACTOR');
+
+  const generalTable = `
+    <table class="data-table profile-table">
+      <tbody>
+        <tr><th>کد شغل</th><td class="num">${escapeHtml(job.jobCode)}</td><th>عنوان شغل</th><td>${escapeHtml(job.title)}</td></tr>
+        <tr><th>عنوان انگلیسی</th><td dir="ltr">${escapeHtml(job.titleEn || '—')}</td><th>واحد سازمانی</th><td>${escapeHtml(job.orgUnit)}</td></tr>
+        <tr><th>کارگاه</th><td>${escapeHtml(workshop?.workshopName ?? '—')}</td><th>شرکت</th><td>${escapeHtml(workshop?.companyName ?? '—')}</td></tr>
+        <tr><th>سرپرست مستقیم</th><td class="num">${escapeHtml(job.supervisorJobCode || '—')}</td><th>تعداد نیرو تحت سرپرستی</th><td class="num">${fmt(job.headcount)}</td></tr>
+        <tr><th>وضعیت شغل</th><td>${JOB_STATUS_LABELS[job.status] ?? job.status}</td><th>نسخه شناسنامه</th><td class="num">${escapeHtml(job.version)}</td></tr>
+      </tbody>
+    </table>`;
+
+  const qualificationTable = `
+    <table class="data-table profile-table">
+      <tbody>
+        <tr><th>تحصیلات موردنیاز</th><td>${escapeHtml(job.education || '—')}</td><th>رشته تحصیلی</th><td>${escapeHtml(job.fieldOfStudy || '—')}</td></tr>
+        <tr><th>سابقه موردنیاز</th><td class="num">${fmt(job.experienceYears, 1)} سال</td><th>دانش تخصصی</th><td>${escapeHtml(job.knowledge || '—')}</td></tr>
+        <tr><th>مهارت‌های فنی</th><td colspan="3">${escapeHtml(job.skills || '—')}</td></tr>
+      </tbody>
+    </table>`;
+
+  const evaluationContent = evaluation
+    ? `<div class="summary-grid profile-summary">
+        <div class="summary-card is-accent"><span class="label">امتیاز کل</span><span class="value">${fmt(evaluation.totalScore, 1)}</span></div>
+        <div class="summary-card"><span class="label">گروه پیشنهادی</span><span class="value">${evaluation.proposedGroup ? fmt(evaluation.proposedGroup) : '—'}</span></div>
+        <div class="summary-card is-neutral"><span class="label">تاریخ ارزیابی</span><span class="value">${escapeHtml(localizeDigits(evaluation.evaluatedAt ?? ''))}</span></div>
+        <div class="summary-card is-neutral"><span class="label">نسخه جدول گروه</span><span class="value">${escapeHtml(localizeDigits(evaluation.tableVersion ?? '—'))}</span></div>
+      </div>`
+    : `<div class="empty-state">این شغل هنوز ارزیابی نشده است. از بخش «ارزیابی مشاغل» با انتخاب این شغل، امتیاز و گروه پیشنهادی محاسبه و در شناسنامه ثبت شود.</div>
+       <ul class="data-list">
+         ${factors.map((factor) => `<li><span>${escapeHtml(factor.name)}</span><b>سقف ${fmt(factor.maxScore)}</b></li>`).join('')}
+         <li><span>مجموع نظری نظام ۱۳۸۹</span><b>${fmt(systemB?.maxTheoreticalScore ?? 1137)} امتیاز</b></li>
+       </ul>`;
+
+  const scoresContent = evaluation?.factorScores?.length
+    ? `<table class="data-table profile-table">
+        <thead><tr><th>عامل</th><th>امتیاز کسب‌شده</th><th>سقف عامل</th><th>وزن رسمی</th></tr></thead>
+        <tbody>
+          ${evaluation.factorScores
+            .map(
+              (factor) => `<tr>
+                <td>${escapeHtml(factor.factorName)}</td>
+                <td class="num">${fmt(factor.points, 1)}</td>
+                <td class="num">${fmt(factor.maxScore)}</td>
+                <td class="num">${fmt(factor.officialWeightPct, 1)}٪</td>
+              </tr>`,
+            )
+            .join('')}
+          <tr>
+            <td><strong>مجموع</strong></td>
+            <td class="num"><strong>${fmt(evaluation.totalScore, 1)}</strong></td>
+            <td colspan="2" class="small muted">${evaluation.scoringComplete ? 'امتیازدهی کامل' : 'امتیازدهی ناقص — زیرعامل بدون جدول رسمی'}</td>
+          </tr>
+        </tbody>
+      </table>`
+    : '<p class="muted">ریز امتیاز عوامل پس از ارزیابی ثبت می‌شود.</p>';
+
+  const groupContent = `
+    <p>
+      گروه پیشنهادی: <strong>${evaluation?.proposedGroup ? fmt(evaluation.proposedGroup) : '— تعیین نشده'}</strong>
+      ${evaluation?.proposedGroup ? ` (بازه ${fmt(evaluation.rangeMin ?? 0)}–${fmt(evaluation.rangeMax ?? 0)} امتیاز)` : ''}
+    </p>
+    <div class="ok-note">
+      گروه پیشنهادی قطعی نیست. گروه نهایی تنها پس از بررسی کارشناس طبقه‌بندی مشاغل و تأیید کمیته و مرجع مسئول ثبت می‌شود.
+    </div>`;
+
+  const approvalContent = `
+    <table class="data-table profile-table">
+      <tbody>
+        <tr><th>وضعیت تأیید</th><td>در انتظار بررسی کارشناس و کمیته طبقه‌بندی مشاغل</td></tr>
+        <tr><th>نام کارشناس</th><td class="muted">— تکمیل در فاز ۵ (ثبت نظر کارشناس) —</td></tr>
+        <tr><th>شماره صورت‌جلسه کمیته</th><td class="muted">— تکمیل در فاز ۵ —</td></tr>
+        <tr><th>تاریخ تأیید</th><td class="muted">—</td></tr>
+      </tbody>
+    </table>`;
+
+  target.innerHTML = `
+    <article class="profile" id="job-profile-print">
+      <header class="profile-header">
+        <div>
+          <p class="small muted">${escapeHtml(workshop?.companyName ?? '')} — ${escapeHtml(workshop?.workshopName ?? '')}</p>
+          <h2>شناسنامه شغل</h2>
+          <p class="muted small">سامانه جامع ارزیابی و طبقه‌بندی مشاغل — واحد پول: ریال ایران (IRR)</p>
+        </div>
+        <div class="profile-header-meta">
+          <span class="badge badge-currency">${escapeHtml(job.jobCode)}</span>
+          <p class="small muted">آخرین ویرایش: ${new Date(job.updatedAt).toLocaleDateString('fa-IR')}</p>
+        </div>
+      </header>
+      ${profileSection(1, 'مشخصات عمومی', generalTable)}
+      ${profileSection(2, 'هدف شغل', `<p>${escapeHtml(job.objective || '—')}</p>`)}
+      ${profileSection(3, 'شرح وظایف', `<h4>وظایف اصلی</h4>${multiline(job.dutiesMain)}<h4>وظایف فرعی</h4>${multiline(job.dutiesSecondary)}`)}
+      ${profileSection(4, 'مسئولیت‌ها', multiline(job.responsibilities))}
+      ${profileSection(5, 'اختیارات', multiline(job.authorities))}
+      ${profileSection(6, 'ارتباطات سازمانی', `<p>${escapeHtml(job.communications || '— ثبت نشده —')}</p>`)}
+      ${profileSection(7, 'شرایط احراز', qualificationTable)}
+      ${profileSection(8, 'مهارت‌ها', `<p>${escapeHtml(job.skills || '— ثبت نشده —')}</p>`)}
+      ${profileSection(9, 'شرایط محیط کار و تجهیزات', `<p>${escapeHtml(job.workingConditions || '—')}</p><p class="small muted">ابزار: ${escapeHtml(job.tools || '—')}</p>`)}
+      ${profileSection(10, 'عوامل ارزیابی', `<p class="small muted">نظام چهارعاملی ۱۳۸۹ — ${fmt(factors.length)} عامل، ۱۴ زیرعامل</p>${evaluationContent}`)}
+      ${profileSection(11, 'امتیازات', scoresContent)}
+      ${profileSection(12, 'گروه شغلی', groupContent)}
+      ${profileSection(13, 'تأیید کارشناسی', approvalContent)}
+      <footer class="profile-footer small muted">
+        این شناسنامه خروجی سامانه است و جایگزین صورت‌جلسه کمیته طبقه‌بندی مشاغل و حکم کارگزینی نیست.
+      </footer>
+    </article>`;
+}
+
 /* ================================ ارزیابی ================================ */
+
+function renderEvalJobOptions() {
+  const select = document.getElementById('e-job');
+  if (!select) return;
+  const current = selectValue(select, '');
+  const jobs = workshopJobs();
+  select.innerHTML =
+    '<option value="">بدون اتصال به شغل</option>' +
+    jobs
+      .map(
+        (job) =>
+          `<option value="${escapeHtml(job.id)}">${escapeHtml(job.jobCode)} — ${escapeHtml(job.title)}</option>`,
+      )
+      .join('');
+  const preferred = jobs.some((job) => job.id === current) ? current : '';
+  setElementValue(select, preferred);
+}
 
 function initEval() {
   renderEvalForm();
+  renderEvalJobOptions();
   $('#e-calc').addEventListener('click', () => {
     try {
       computeEval();
@@ -1707,7 +2245,71 @@ function renderEval(result, match) {
       «در انتظار تأیید کمیته طبقه‌بندی مشاغل و اداره کل روابط کار» است؛ بدون نام کارشناس و شماره صورت‌جلسه، گروه قطعی نمی‌شود.
     </div>`;
 
-  target.innerHTML = summary + factorTable + subTable + warnings + approvalNote;
+  const selectedJobId = selectValue(document.getElementById('e-job'), '');
+  state.evalJobId = selectedJobId || null;
+  const job = selectedJobId ? jobById(selectedJobId) : null;
+  const savePanel = `
+    <div class="card no-print">
+      <h3 class="card-title">ثبت نتیجه در شناسنامه شغل</h3>
+      ${
+        job
+          ? `<p class="small">شغل انتخاب‌شده: <strong>${escapeHtml(job.jobCode)} — ${escapeHtml(job.title)}</strong>
+              ${job.evaluation ? `<span class="muted">(ارزیابی قبلی: ${fmt(job.evaluation.totalScore, 1)} امتیاز — گروه ${fmt(job.evaluation.proposedGroup)} در ${escapeHtml(localizeDigits(job.evaluation.evaluatedAt ?? ''))})</span>` : ''}
+            </p>
+            <button class="primary-btn" type="button" id="eval-save">ثبت امتیاز و گروه در شناسنامه</button>`
+          : `<p class="muted small">برای ثبت در شناسنامه، ابتدا از نوار بالای همین بخش «شغل مرتبط» را انتخاب کنید.</p>`
+      }
+      <p class="form-error" id="eval-save-msg" role="status"></p>
+    </div>`;
+
+  target.innerHTML = summary + factorTable + subTable + warnings + approvalNote + savePanel;
+
+  const saveButton = document.getElementById('eval-save');
+  if (saveButton) {
+    saveButton.addEventListener('click', () => saveEvaluationToJob(result, match));
+  }
+}
+
+function saveEvaluationToJob(result, match) {
+  const job = jobById(state.evalJobId ?? '');
+  const message = document.getElementById('eval-save-msg');
+  if (!job) {
+    if (message) message.textContent = 'شغل مرتبط انتخاب نشده است.';
+    return;
+  }
+  const evaluation = {
+    totalScore: result.totalScore,
+    proposedGroup: match.group ?? null,
+    rangeMin: match.range?.minScore ?? null,
+    rangeMax: match.range?.maxScore ?? null,
+    tableVersion: match.tableVersion ?? null,
+    evaluationDate: document.getElementById('e-date').value || '1405-03-15',
+    evaluatedAt: new Date().toISOString(),
+    scoringComplete: result.scoringComplete,
+    systemVersion: result.systemVersion,
+    factorScores: result.factorScores.map((factor) => ({
+      factorCode: factor.factorCode,
+      factorName: factor.factorName,
+      points: factor.points,
+      maxScore: factor.maxScore,
+      officialWeightPct: factor.officialWeightPct,
+    })),
+    subFactorScores: result.subFactorScores.map((sub) => ({
+      code: sub.subFactorCode,
+      name: sub.subFactorName,
+      points: sub.points,
+      maxScore: sub.maxScore,
+      validityStatus: sub.validityStatus,
+      selectionDescription: sub.selectionDescription,
+    })),
+  };
+  const jobs = state.store.jobs.map((row) =>
+    row.id === job.id ? { ...row, evaluation, updatedAt: new Date().toISOString() } : row,
+  );
+  writeStore({ ...state.store, jobs });
+  if (message) message.textContent = `ثبت شد: ${fmt(evaluation.totalScore, 1)} امتیاز — گروه پیشنهادی ${evaluation.proposedGroup ? fmt(evaluation.proposedGroup) : 'نامشخص'}`;
+  showToast('نتیجه ارزیابی در شناسنامه شغل ثبت شد');
+  renderJobsTable();
 }
 
 /* ================================== شروع ================================== */
@@ -1741,6 +2343,7 @@ async function boot() {
   initGroup();
   initEval();
   initWorkshops();
+  initJobs();
   initSettings();
 
   const printButton = document.getElementById('print-btn');

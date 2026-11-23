@@ -39,8 +39,8 @@
           <button class="nav-item" data-route="org" type="button" disabled title="فاز ۶ — ساختار سازمانی درختی">
             <span class="nav-icon" aria-hidden="true">⌸</span><span>ساختار سازمانی</span><span class="nav-badge">فاز ۶</span>
           </button>
-          <button class="nav-item" data-route="jobs" type="button" disabled title="فاز ۳ — بانک مشاغل و شناسنامه شغل">
-            <span class="nav-icon" aria-hidden="true">▦</span><span>بانک مشاغل</span><span class="nav-badge">فاز ۳</span>
+          <button class="nav-item" data-route="jobs" type="button">
+            <span class="nav-icon" aria-hidden="true">▦</span><span>بانک مشاغل</span>
           </button>
 
           <p class="nav-group-title">ارزیابی و طبقه‌بندی</p>
@@ -75,7 +75,7 @@
         </nav>
 
         <div class="sidebar-footer">
-          <p class="sidebar-note">نسخه <strong>۲٫۰</strong> — فاز ۲ (پوسته سازمانی)</p>
+          <p class="sidebar-note">نسخه <strong>۲٫۱</strong> — فاز ۳ (بانک مشاغل)</p>
           <p class="sidebar-note small">تمام مبالغ به ریال ایران (IRR)</p>
         </div>
       </aside>
@@ -368,6 +368,150 @@
             </div>
           </section>
 
+
+          <!-- ------------------------------ بانک مشاغل ------------------------------ -->
+          <section id="view-jobs" class="view">
+            <div class="panel-head">
+              <div>
+                <h2>بانک مشاغل کارگاه</h2>
+                <p class="muted">
+                  هر شغل یک پرونده کامل دارد: هدف، وظایف، مسئولیت‌ها، اختیارات، شرایط احراز و نتیجه ارزیابی.
+                  شناسنامه قابل چاپ است و نتیجه ارزیابی امتیازی در آن ثبت می‌شود.
+                </p>
+              </div>
+              <div class="head-actions">
+                <button class="ghost-btn" type="button" id="jobs-print-list">چاپ فهرست</button>
+                <button class="primary-btn" type="button" id="job-new">＋ شغل جدید</button>
+              </div>
+            </div>
+
+            <div class="card" id="jobs-empty-workshop" hidden>
+              <div class="empty-state">
+                برای ثبت شغل، ابتدا یک کارگاه تعریف کنید. هر شغل به کارگاه فعال تعلق دارد.
+                <div style="margin-top: 10px"><button class="primary-btn" type="button" data-route="workshops">رفتن به مدیریت کارگاه‌ها</button></div>
+              </div>
+            </div>
+
+            <div id="jobs-workspace">
+              <form id="job-form" class="card" hidden autocomplete="off">
+                <div class="card-head">
+                  <h3 id="job-form-title">شغل جدید</h3>
+                  <button class="ghost-btn" type="button" id="job-cancel">انصراف</button>
+                </div>
+                <input type="hidden" id="jf-id" />
+
+                <fieldset class="form-section">
+                  <legend>۱. مشخصات عمومی</legend>
+                  <div class="form-grid">
+                    <label class="field"><span>کد شغل *</span><input id="jf-code" required dir="ltr" placeholder="مثلاً J-1001" /></label>
+                    <label class="field"><span>عنوان شغل *</span><input id="jf-title" required /></label>
+                    <label class="field"><span>عنوان انگلیسی</span><input id="jf-title-en" dir="ltr" /></label>
+                    <label class="field"><span>واحد سازمانی *</span><input id="jf-unit" required placeholder="مثلاً تولید — خط مونتاژ" /></label>
+                    <label class="field"><span>سرپرست مستقیم (کد شغل)</span><input id="jf-supervisor" dir="ltr" /></label>
+                    <label class="field"><span>تعداد نیرو تحت سرپرستی</span><input id="jf-headcount" type="number" min="0" step="1" value="0" /></label>
+                    <label class="field">
+                      <span>وضعیت شغل</span>
+                      <select id="jf-status">
+                        <option value="ACTIVE">فعال</option>
+                        <option value="VACANT">بلاتصدی</option>
+                        <option value="ARCHIVED">بایگانی</option>
+                      </select>
+                    </label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="form-section">
+                  <legend>۲. هدف و شرح وظایف</legend>
+                  <div class="form-grid">
+                    <label class="field field-wide"><span>هدف شغل *</span><textarea id="jf-objective" rows="2" required></textarea></label>
+                    <label class="field field-wide"><span>شرح وظایف اصلی *</span><textarea id="jf-duties" rows="4" required placeholder="هر وظیفه در یک خط"></textarea></label>
+                    <label class="field field-wide"><span>شرح وظایف فرعی</span><textarea id="jf-duties-secondary" rows="3" placeholder="هر وظیفه در یک خط"></textarea></label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="form-section">
+                  <legend>۳. مسئولیت‌ها، اختیارات و ارتباطات</legend>
+                  <div class="form-grid">
+                    <label class="field field-wide"><span>مسئولیت‌ها</span><textarea id="jf-responsibilities" rows="3"></textarea></label>
+                    <label class="field field-wide"><span>اختیارات</span><textarea id="jf-authorities" rows="3"></textarea></label>
+                    <label class="field field-wide"><span>ارتباطات سازمانی</span><textarea id="jf-communications" rows="2"></textarea></label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="form-section">
+                  <legend>۴. شرایط احراز و مهارت‌ها</legend>
+                  <div class="form-grid">
+                    <label class="field">
+                      <span>تحصیلات موردنیاز</span>
+                      <select id="jf-education">
+                        <option value="زیر دیپلم">زیر دیپلم</option>
+                        <option value="دیپلم">دیپلم</option>
+                        <option value="کاردانی">کاردانی</option>
+                        <option value="کارشناسی" selected>کارشناسی</option>
+                        <option value="کارشناسی ارشد">کارشناسی ارشد</option>
+                        <option value="دکتری">دکتری</option>
+                      </select>
+                    </label>
+                    <label class="field"><span>رشته تحصیلی</span><input id="jf-field" /></label>
+                    <label class="field"><span>سابقه موردنیاز (سال)</span><input id="jf-experience" type="number" min="0" step="0.5" value="0" /></label>
+                    <label class="field"><span>دانش تخصصی</span><input id="jf-knowledge" /></label>
+                    <label class="field field-wide"><span>مهارت‌های فنی</span><textarea id="jf-skills" rows="2"></textarea></label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="form-section">
+                  <legend>۵. محیط کار و تجهیزات</legend>
+                  <div class="form-grid">
+                    <label class="field field-wide"><span>شرایط محیط کار</span><textarea id="jf-conditions" rows="2"></textarea></label>
+                    <label class="field field-wide"><span>ابزار و تجهیزات مورد استفاده</span><textarea id="jf-tools" rows="2"></textarea></label>
+                  </div>
+                </fieldset>
+
+                <div class="form-actions">
+                  <button class="primary-btn" type="submit">ذخیره شغل</button>
+                  <button class="ghost-btn" type="button" id="job-cancel-2">انصراف</button>
+                  <span class="form-error" id="job-error" role="alert"></span>
+                </div>
+              </form>
+
+              <div class="card">
+                <div class="toolbar">
+                  <label class="search-field">
+                    <span class="small muted">جستجو</span>
+                    <input id="jobs-search" type="search" placeholder="کد، عنوان یا واحد سازمانی" />
+                  </label>
+                  <label class="field field-inline">
+                    <span>واحد سازمانی</span>
+                    <select id="jobs-filter-unit"><option value="">همه واحدها</option></select>
+                  </label>
+                  <label class="field field-inline">
+                    <span>گروه پیشنهادی</span>
+                    <select id="jobs-filter-group"></select>
+                  </label>
+                  <span class="badge badge-soft" id="jobs-count"></span>
+                </div>
+                <div class="table-wrap tall">
+                  <table class="data-table" id="jobs-table"></table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ---------------------------- شناسنامه شغل ---------------------------- -->
+          <section id="view-job-profile" class="view">
+            <div class="panel-head no-print">
+              <div>
+                <h2>شناسنامه شغل</h2>
+                <p class="muted">نسخه قابل چاپ پرونده شغل (A4). برای خروجی PDF از «چاپ» و گزینه Save as PDF استفاده کنید.</p>
+              </div>
+              <div class="head-actions">
+                <button class="ghost-btn" type="button" id="profile-back">بازگشت به بانک مشاغل</button>
+                <button class="primary-btn" type="button" id="profile-print">چاپ شناسنامه</button>
+              </div>
+            </div>
+            <div id="job-profile-body"></div>
+          </section>
+
           <!-- ------------------------------- ارزیابی ------------------------------- -->
           <section id="view-evaluation" class="view">
             <div class="panel-head">
@@ -387,6 +531,10 @@
               <label class="field">
                 <span>تاریخ ارزیابی</span>
                 <input id="e-date" type="text" value="1405-03-15" dir="ltr" />
+              </label>
+              <label class="field">
+                <span>شغل مرتبط (اختیاری)</span>
+                <select id="e-job"><option value="">بدون اتصال به شغل</option></select>
               </label>
               <p class="muted small">
                 نظام ۱۳۹۵ فقط پس از بارگذاری «طرح مصوب کارگاه» با شماره تأییدیه اداره کل روابط کار فعال می‌شود؛ در این نسخه، داده طرح کارگاه بارگذاری نشده است.
