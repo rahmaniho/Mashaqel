@@ -1258,6 +1258,16 @@
                 <button class="ghost-btn" type="button" id="backend-backup">پشتیبان مرکزی</button>
                 <button class="ghost-btn" type="button" id="backend-restore">بازیابی از سرور</button>
               </div>
+              <div class="backend-actions sync-row">
+                <button class="ghost-btn" type="button" id="sync-pull">دریافت وضعیت از سرور</button>
+                <button class="ghost-btn" type="button" id="sync-push">ارسال وضعیت به سرور</button>
+                <button class="ghost-btn" type="button" id="sync-refresh">بررسی نسخه‌ها</button>
+                <span class="badge badge-soft" id="sync-status"></span>
+              </div>
+              <p class="small muted">
+                همگام‌سازی نسخه‌دار: سرور نسخه را نگه می‌دارد و ارسال با نسخه قدیمی رد می‌شود (تعارض ۴۰۹).
+                کاربران محدود به کارگاه فقط همان کارگاه‌ها را می‌گیرند و می‌فرستند؛ بازدیدکننده فقط دریافت می‌کند.
+              </p>
               <p class="small" id="backend-note" role="status"></p>
             </div>
             <div class="grid-2">

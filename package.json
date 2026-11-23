@@ -15,7 +15,8 @@
     "verify:web": "node --no-warnings --experimental-strip-types scripts/verify-web-parity.ts",
     "test:web-ui": "node tests/ui-smoke.mjs",
     "test:web-server": "node --no-warnings tests/ui-server-mode.mjs",
-    "test:server": "node --no-warnings --test tests/server.test.mjs"
+    "test:server": "node --no-warnings --test tests/server.test.mjs",
+    "check:deploy": "node --no-warnings --experimental-strip-types scripts/checkDeploy.ts"
   },
   "engines": {
     "node": ">=22.6.0"

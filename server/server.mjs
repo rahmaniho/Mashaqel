@@ -18,7 +18,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
-export const SERVER_VERSION = '11.0.0';
+export const SERVER_VERSION = '12.0.0';
 export const ROLES = ['ADMIN', 'EXPERT', 'PAYROLL', 'VIEWER'];
 export const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,20}$/;
 export const PASSWORD_PATTERN = /^(?=.*[A-Za-z\u0600-\u06FF])(?=.*\d).{8,64}$/;
@@ -101,6 +101,13 @@ export function openDatabase(dbPath) {
       prev_hash TEXT NOT NULL,
       hash TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS state_docs (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      version INTEGER NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT,
+      payload TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS backups (
       version INTEGER PRIMARY KEY AUTOINCREMENT,
       at TEXT NOT NULL,
@@ -172,6 +179,53 @@ export function verifyAuditChain(db) {
     prev = row.hash;
   }
   return { ok: true, count: rows.length, brokenAt: null, head: prev };
+}
+
+/* --------------------------- همگام‌سازی وضعیت (فاز ۱۲) --------------------------- */
+
+const STATE_LIMIT = 4 * 1024 * 1024;
+
+/** فیلتر کردن سند سازمانی بر اساس کارگاه‌های مجاز کاربر (محدوده خالی = همه). */
+export function scopeState(doc, scopeIds) {
+  if (!doc) return null;
+  const scope = Array.isArray(scopeIds) ? scopeIds : [];
+  if (scope.length === 0) return doc;
+  const inScope = (row) => row && scope.includes(row.workshopId ?? row.id);
+  const workshops = (doc.workshops ?? []).filter((row) => scope.includes(row.id));
+  const activeWorkshopId = scope.includes(doc.activeWorkshopId) ? doc.activeWorkshopId : workshops[0]?.id ?? null;
+  return {
+    ...doc,
+    workshops,
+    units: (doc.units ?? []).filter(inScope),
+    jobs: (doc.jobs ?? []).filter(inScope),
+    employees: (doc.employees ?? []).filter(inScope),
+    activeWorkshopId,
+  };
+}
+
+/**
+ * ادغام ارسال کاربر محدود به کارگاه: فقط کارگاه‌های مجاز جایگزین می‌شوند و
+ * بقیه کارگاه‌های سند سرور دست‌نخورده می‌مانند. برای مدیر (محدوده خالی) جایگزینی کامل است.
+ */
+export function mergeScoped(existing, incoming, scopeIds) {
+  const scope = Array.isArray(scopeIds) ? scopeIds : [];
+  if (scope.length === 0 || !existing) return incoming;
+  const outside = (row) => row && row.workshopId && !scope.includes(row.workshopId);
+  const inside = (row) => row && scope.includes(row.workshopId);
+  const workshops = [
+    ...(existing.workshops ?? []).filter((row) => !scope.includes(row.id)),
+    ...(incoming.workshops ?? []).filter((row) => scope.includes(row.id)),
+  ];
+  return {
+    ...incoming,
+    workshops,
+    units: [...(existing.units ?? []).filter(outside), ...(incoming.units ?? []).filter(inside)],
+    jobs: [...(existing.jobs ?? []).filter(outside), ...(incoming.jobs ?? []).filter(inside)],
+    employees: [...(existing.employees ?? []).filter(outside), ...(incoming.employees ?? []).filter(inside)],
+    activeWorkshopId: scope.includes(incoming.activeWorkshopId)
+      ? incoming.activeWorkshopId
+      : existing.activeWorkshopId ?? null,
+  };
 }
 
 /* -------------------------------- کاربران -------------------------------- */
@@ -290,6 +344,7 @@ export function createApp({ dbPath = process.env.MASHQEL_DB ?? ':memory:', corsO
     time: nowIso(),
     users: db.prepare('SELECT COUNT(*) AS total FROM users').get().total,
     audit: db.prepare('SELECT COUNT(*) AS total FROM audit').get().total,
+    stateVersion: db.prepare('SELECT version FROM state_docs WHERE id = 1').get()?.version ?? 0,
   }));
 
   route('GET', /^\/api\/auth\/status$/, () => {
@@ -483,6 +538,58 @@ export function createApp({ dbPath = process.env.MASHQEL_DB ?? ':memory:', corsO
     requireAdmin({ user });
     return verifyAuditChain(db);
   });
+
+  route('GET', /^\/api\/state$/, (ctx) => {
+    const { user } = sessionUser(ctx.request);
+    const row = db.prepare('SELECT * FROM state_docs WHERE id = 1').get();
+    if (!row) return { state: null };
+    const doc = JSON.parse(row.payload);
+    const scope = JSON.parse(user.workshop_ids ?? '[]');
+    return {
+      state: {
+        version: row.version,
+        updatedAt: row.updated_at,
+        updatedBy: row.updated_by,
+        scoped: scope.length > 0,
+        payload: scopeState(doc, scope),
+      },
+    };
+  });
+
+  route(
+    'PUT',
+    /^\/api\/state$/,
+    (ctx) => {
+      const { user } = sessionUser(ctx.request);
+      if (user.role === 'VIEWER') throw bad('نقش بازدیدکننده اجازه تغییر وضعیت سازمان را ندارد.', 'FORBIDDEN', 403);
+      const payload = ctx.body.payload;
+      if (!payload || typeof payload !== 'object' || !Array.isArray(payload.workshops)) {
+        throw bad('ساختار وضعیت معتبر نیست (فیلد workshops الزامی است).');
+      }
+      const serialized = JSON.stringify(payload);
+      if (serialized.length > STATE_LIMIT - 4096) throw bad('حجم وضعیت بیش از حد مجاز است.', 'TOO_LARGE', 413);
+      const baseVersion = Number(ctx.body.baseVersion ?? 0);
+      const current = db.prepare('SELECT * FROM state_docs WHERE id = 1').get();
+      const currentVersion = current?.version ?? 0;
+      if (baseVersion !== currentVersion) {
+        throw new HttpError(409, 'STALE_VERSION', `نسخه سرور ${currentVersion} است و نسخه ارسالی ${baseVersion}؛ ابتدا دریافت کنید.`);
+      }
+      const scope = JSON.parse(user.workshop_ids ?? '[]');
+      const merged = mergeScoped(current ? JSON.parse(current.payload) : null, payload, scope);
+      const nextSerialized = JSON.stringify(merged);
+      if (nextSerialized.length > STATE_LIMIT) throw bad('حجم وضعیت بیش از حد مجاز است.', 'TOO_LARGE', 413);
+      const version = currentVersion + 1;
+      const at = nowIso();
+      db.prepare(
+        `INSERT INTO state_docs (id, version, updated_at, updated_by, payload) VALUES (1, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET version = excluded.version, updated_at = excluded.updated_at,
+           updated_by = excluded.updated_by, payload = excluded.payload`,
+      ).run(version, at, user.username, nextSerialized);
+      record({ user }, 'settings', 'SYNC', `همگام‌سازی وضعیت سازمان — نسخه ${version} (${payload.workshops.length} کارگاه)`);
+      return { ok: true, version, updatedAt: at, scoped: scope.length > 0 };
+    },
+    { bodyLimit: STATE_LIMIT },
+  );
 
   route(
     'GET',

@@ -13,6 +13,8 @@ on:
       - 'tests/ui-server-mode.mjs'
       - 'tests/server.test.mjs'
       - 'server/**'
+      - 'deploy/**'
+      - 'scripts/checkDeploy.ts'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/pages.yml'
@@ -64,6 +66,9 @@ jobs:
 
       - name: آزمون یکپارچه رابط کاربری با سرور مرکزی
         run: npm run test:web-server
+
+      - name: بازبینی بسته استقرار سازمانی
+        run: npm run check:deploy
 
       - name: فعال‌سازی Pages (در صورت نیاز و وجود دسترسی)
         uses: actions/configure-pages@v5

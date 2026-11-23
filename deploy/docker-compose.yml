@@ -1,0 +1,36 @@
+# استقرار سازمانی: سرور API + Caddy با TLS خودکار
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MASHQEL_DB: /data/mashaqel.sqlite
+    volumes:
+      - mashaqel-data:/data
+    expose:
+      - '8787'
+
+  web:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      MASHQEL_DOMAIN: ${MASHQEL_DOMAIN:-localhost}
+    volumes:
+      - ../web:/srv:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  mashaqel-data:
+  caddy-data:
+  caddy-config:
