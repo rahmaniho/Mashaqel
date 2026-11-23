@@ -170,6 +170,7 @@ function writeStore(patch) {
     renderOrgView();
     renderEmployeesView();
     renderArrearsView();
+    renderReportsView();
     renderSettingsMeta();
   }
 }
@@ -215,6 +216,11 @@ const ROUTES = {
     title: 'مدیریت کارکنان',
     subtitle: 'پرونده پرسنلی، قرارداد، جایگاه سازمانی، داده مزد و تاریخچه ارتقا',
     view: 'view-employees',
+  },
+  reports: {
+    title: 'گزارش‌ها',
+    subtitle: 'گزارش‌ساز رسمی با سربرگ کارگاه، خروجی PDF/Excel و مقایسه چندشغلی',
+    view: 'view-reports',
   },
   arrears: {
     title: 'محاسبه معوقات',
@@ -283,6 +289,7 @@ function navigate(route, options = {}) {
   if (target === 'org') renderOrgView();
   if (target === 'employees') renderEmployeesView();
   if (target === 'arrears') renderArrearsView();
+  if (target === 'reports') renderReportsView();
   if (target === 'jobs') renderJobsView();
   if (target === 'evaluation') renderEvalJobOptions();
   if (target === 'group') renderGroupJobsComparison();
@@ -4688,6 +4695,729 @@ function exportArrearsCsv() {
   return ok;
 }
 
+
+/* ============================== گزارش‌ساز ============================== */
+
+const REPORT_TYPES = [
+  { code: 'JOBS_LIST', title: 'فهرست مشاغل کارگاه' },
+  { code: 'JOBS_EVALUATED', title: 'مشاغل ارزیابی‌شده' },
+  { code: 'GROUP_ASSIGNMENT', title: 'گروه‌بندی مشاغل و مغایرت‌ها' },
+  { code: 'COMMITTEE', title: 'صورت‌جلسه تصمیم‌های کمیته' },
+  { code: 'ORG', title: 'ساختار سازمانی و نیروی مصوب' },
+  { code: 'EMPLOYEES', title: 'فهرست کارکنان' },
+  { code: 'EMPLOYEE_DOSSIER', title: 'پرونده پرسنلی کارمند' },
+  { code: 'DISTRIBUTION', title: 'توزیع کارکنان بر اساس گروه و واحد' },
+  { code: 'PAYROLL', title: 'فیش حقوقی ماهانه کارکنان' },
+  { code: 'ARREARS', title: 'خلاصه معوقات دوره' },
+  { code: 'YEAR_COMPARE', title: 'مقایسه مزد ۱۴۰۴ و ۱۴۰۵' },
+  { code: 'OVERVIEW', title: 'گزارش جامع کارگاه' },
+];
+
+const COMPARE_CRITERIA = [
+  { code: 'TOTAL', title: 'امتیاز کل', short: 'امتیاز', max: 1137 },
+  { code: 'GROUP', title: 'گروه شغلی', short: 'گروه', max: 20 },
+  { code: 'SKILL', title: 'امتیاز مهارت‌ها', short: 'مهارت', max: 372 },
+  { code: 'RESP', title: 'امتیاز مسئولیت‌ها', short: 'مسئولیت', max: 380 },
+  { code: 'EFFORT', title: 'امتیاز کوشش‌ها', short: 'کوشش', max: 185 },
+  { code: 'COND', title: 'امتیاز شرایط کار', short: 'شرایط', max: 200 },
+  { code: 'EXPERIENCE', title: 'سابقه موردنیاز (سال)', short: 'سابقه', max: 10 },
+  { code: 'EDUCATION', title: 'سطح تحصیلات موردنیاز', short: 'تحصیلات', max: 6 },
+  { code: 'HEADCOUNT', title: 'نیرو تحت سرپرستی', short: 'نیرو', max: 20 },
+  { code: 'DUTIES', title: 'تعداد وظایف اصلی', short: 'وظایف', max: 15 },
+];
+
+const EDUCATION_LEVELS = {
+  'زیر دیپلم': 1,
+  'دیپلم': 2,
+  'کاردانی': 3,
+  'کارشناسی': 4,
+  'کارشناسی ارشد': 5,
+  'دکتری': 6,
+};
+
+const RADAR_COLORS = ['#0b1c3a', '#d4af37', '#2f6f8f'];
+const reportState = { type: 'JOBS_LIST', period: '1405-01', employeeId: '', unitId: '', columns: [], rows: [], title: '' };
+
+function compareValue(job, code) {
+  const evaluation = job.evaluation;
+  const approval = normalizeApproval(evaluation);
+  switch (code) {
+    case 'TOTAL':
+      return Number(evaluation?.totalScore ?? 0);
+    case 'GROUP':
+      return Number(approval?.finalGroup ?? evaluation?.proposedGroup ?? 0);
+    case 'SKILL':
+    case 'RESP':
+    case 'EFFORT':
+    case 'COND': {
+      const factorCode = { SKILL: 'SYS_B_F1', RESP: 'SYS_B_F2', EFFORT: 'SYS_B_F3', COND: 'SYS_B_F4' }[code];
+      return Number((evaluation?.factorScores ?? []).find((factor) => factor.factorCode === factorCode)?.points ?? 0);
+    }
+    case 'EXPERIENCE':
+      return Number(job.experienceYears ?? 0);
+    case 'EDUCATION':
+      return EDUCATION_LEVELS[job.education] ?? 0;
+    case 'HEADCOUNT':
+      return Number(job.headcount ?? 0);
+    case 'DUTIES':
+      return String(job.dutiesMain ?? '').split('\n').map((line) => line.trim()).filter(Boolean).length;
+    default:
+      return 0;
+  }
+}
+
+function initReports() {
+  const typeSelect = document.getElementById('rp-type');
+  if (typeSelect) {
+    typeSelect.innerHTML = REPORT_TYPES.map((type) => `<option value="${type.code}">${escapeHtml(type.title)}</option>`).join('');
+    setElementValue(typeSelect, reportState.type);
+  }
+  const periodSelect = document.getElementById('rp-period');
+  if (periodSelect) {
+    periodSelect.innerHTML = periodsForYear(1405).map((period) => `<option value="${period}">${periodLabel(period)}</option>`).join('');
+    setElementValue(periodSelect, reportState.period);
+  }
+  const unitSelect = document.getElementById('rp-unit');
+  if (unitSelect) {
+    unitSelect.innerHTML =
+      '<option value="">همه واحدها</option>' +
+      unitsTreeOrder(workshopUnits())
+        .map(({ unit, depth }) => `<option value="${escapeHtml(unit.id)}">${'—'.repeat(depth)} ${escapeHtml(unit.title)}</option>`)
+        .join('');
+  }
+
+  const build = document.getElementById('rp-build');
+  if (build) build.addEventListener('click', () => buildReport());
+  const print = document.getElementById('rp-print');
+  if (print) {
+    print.addEventListener('click', () => {
+      if (typeof window.print === 'function') window.print();
+    });
+  }
+  const exportButton = document.getElementById('rp-export');
+  if (exportButton) exportButton.addEventListener('click', () => exportReportCsv());
+  const compareButton = document.getElementById('cmp-build');
+  if (compareButton) compareButton.addEventListener('click', () => buildComparison());
+
+  renderReportsView();
+}
+
+function renderReportsView() {
+  const sheet = document.getElementById('rp-sheet');
+  const empty = document.getElementById('rp-empty-workshop');
+  if (!sheet || !empty) return;
+  const hasWorkshop = Boolean(activeWorkshop());
+  empty.hidden = hasWorkshop;
+  if (!hasWorkshop) {
+    sheet.hidden = true;
+    return;
+  }
+
+  const employeeSelect = document.getElementById('rp-employee');
+  if (employeeSelect) {
+    const previous = reportState.employeeId || selectValue(employeeSelect, '');
+    const employees = workshopEmployees();
+    employeeSelect.innerHTML =
+      employees.length === 0
+        ? '<option value="">— کارمندی ثبت نشده —</option>'
+        : employees
+            .map((employee) => `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.personnelCode)} — ${escapeHtml(`${employee.firstName} ${employee.lastName}`.trim())}</option>`)
+            .join('');
+    const next = employees.some((employee) => employee.id === previous) ? previous : employees[0]?.id ?? '';
+    setElementValue(employeeSelect, next);
+    reportState.employeeId = next;
+  }
+
+  const unitSelect = document.getElementById('rp-unit');
+  if (unitSelect) {
+    const previous = reportState.unitId || selectValue(unitSelect, '');
+    unitSelect.innerHTML =
+      '<option value="">همه واحدها</option>' +
+      unitsTreeOrder(workshopUnits())
+        .map(({ unit, depth }) => `<option value="${escapeHtml(unit.id)}">${'—'.repeat(depth)} ${escapeHtml(unit.title)}</option>`)
+        .join('');
+    setElementValue(unitSelect, previous);
+  }
+
+  const jobsSelect = document.getElementById('cmp-jobs');
+  if (jobsSelect) {
+    const previouslySelected = new Set(
+      [...(jobsSelect.options ?? [])].filter((option) => option.selected || option.hasAttribute('selected')).map((option) => option.getAttribute('value')),
+    );
+    jobsSelect.innerHTML = workshopJobs()
+      .map((job) => `<option value="${escapeHtml(job.id)}">${escapeHtml(job.jobCode)} — ${escapeHtml(job.title)}</option>`)
+      .join('');
+    for (const option of jobsSelect.options ?? []) {
+      const selected = previouslySelected.has(option.getAttribute('value'));
+      option.selected = selected;
+      if (selected) option.setAttribute('selected', 'selected');
+    }
+  }
+}
+
+function reportTableHtml(columns, rows) {
+  return `<div class="table-wrap">
+    <table class="data-table report-table">
+      <thead><tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${rows
+          .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(String(cell ?? '—'))}</td>`).join('')}</tr>`)
+          .join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function buildReportContent({ type, period, employeeId, unitId, workshop }) {
+  const unitFilter = unitId ? unitById(unitId) : null;
+  const unitLabel = unitFilter ? ` — واحد ${unitFilter.title}` : '';
+  const jobs = workshopJobs();
+  const employees = workshopEmployees();
+
+  switch (type) {
+    case 'JOBS_LIST': {
+      const rows = jobs
+        .filter((job) => !unitId || job.unitId === unitId)
+        .map((job) => {
+          const approval = normalizeApproval(job.evaluation);
+          return [
+            job.jobCode,
+            job.title,
+            job.orgUnit || '—',
+            job.supervisorJobCode || '—',
+            fmt(job.headcount ?? 0),
+            job.evaluation ? fmt(job.evaluation.totalScore, 1) : '—',
+            job.evaluation?.proposedGroup ? fmt(job.evaluation.proposedGroup) : '—',
+            approval?.finalGroup ? fmt(approval.finalGroup) : '—',
+            job.evaluation ? APPROVAL_STATUS_LABELS[approval.status] ?? '—' : 'بدون ارزیابی',
+          ];
+        });
+      return {
+        title: 'فهرست مشاغل کارگاه',
+        subtitle: `${workshop.workshopName}${unitLabel}`,
+        columns: ['کد شغل', 'عنوان شغل', 'واحد سازمانی', 'سرپرست', 'تعداد نیرو', 'امتیاز', 'گروه پیشنهادی', 'گروه نهایی', 'وضعیت تأیید'],
+        rows,
+      };
+    }
+    case 'JOBS_EVALUATED': {
+      const rows = jobs
+        .filter((job) => job.evaluation)
+        .filter((job) => !unitId || job.unitId === unitId)
+        .map((job) => {
+          const approval = normalizeApproval(job.evaluation);
+          return [
+            job.jobCode,
+            job.title,
+            fmt(job.evaluation.totalScore, 1),
+            `${fmt(job.evaluation.rangeMin ?? 0)}–${fmt(job.evaluation.rangeMax ?? 0)}`,
+            job.evaluation.proposedGroup ? fmt(job.evaluation.proposedGroup) : '—',
+            approval?.finalGroup ? fmt(approval.finalGroup) : '—',
+            APPROVAL_STATUS_LABELS[approval.status] ?? '—',
+            approval?.expertName ?? '—',
+            approval?.committeeRef ?? '—',
+          ];
+        });
+      return {
+        title: 'گزارش مشاغل ارزیابی‌شده',
+        subtitle: `${workshop.workshopName}${unitLabel} — ${fmt(rows.length)} شغل ارزیابی‌شده`,
+        columns: ['کد شغل', 'عنوان', 'امتیاز کل', 'بازه امتیاز', 'گروه پیشنهادی', 'گروه نهایی', 'وضعیت تأیید', 'کارشناس', 'شماره صورت‌جلسه'],
+        rows,
+      };
+    }
+    case 'GROUP_ASSIGNMENT': {
+      const rows = jobs
+        .filter((job) => job.evaluation)
+        .filter((job) => !unitId || job.unitId === unitId)
+        .map((job) => {
+          const approval = normalizeApproval(job.evaluation);
+          const delta = approval?.finalGroup && job.evaluation.proposedGroup
+            ? approval.finalGroup - job.evaluation.proposedGroup
+            : 0;
+          return [
+            job.jobCode,
+            job.title,
+            job.evaluation.proposedGroup ? fmt(job.evaluation.proposedGroup) : '—',
+            approval?.finalGroup ? fmt(approval.finalGroup) : '—',
+            delta === 0 ? '۰' : `${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))}`,
+            APPROVAL_STATUS_LABELS[approval.status] ?? '—',
+            approval?.changeReason ?? '—',
+          ];
+        });
+      return {
+        title: 'گروه‌بندی مشاغل و مغایرت‌ها',
+        subtitle: `${workshop.workshopName} — مبنا: گروه پیشنهادی موتور در برابر گروه مصوب کمیته`,
+        columns: ['کد شغل', 'عنوان', 'گروه پیشنهادی', 'گروه نهایی', 'اختلاف', 'وضعیت تأیید', 'دلیل تغییر'],
+        rows,
+      };
+    }
+    case 'COMMITTEE': {
+      const rows = [];
+      for (const job of jobs) {
+        const approval = normalizeApproval(job.evaluation);
+        for (const entry of approval?.history ?? []) {
+          if (entry.status === 'PENDING_COMMITTEE_APPROVAL') continue;
+          rows.push([
+            entry.decisionDate ?? '—',
+            job.jobCode,
+            job.title,
+            APPROVAL_STATUS_LABELS[entry.status] ?? entry.status,
+            entry.finalGroup ? fmt(entry.finalGroup) : '—',
+            entry.expertName ?? '—',
+            entry.committeeRef ?? '—',
+            entry.changeReason ?? '—',
+          ]);
+        }
+      }
+      return {
+        title: 'صورت‌جلسه تصمیم‌های کمیته طبقه‌بندی',
+        subtitle: `${workshop.workshopName} — ${fmt(rows.length)} تصمیم ثبت‌شده`,
+        columns: ['تاریخ تصمیم', 'کد شغل', 'عنوان', 'تصمیم', 'گروه نهایی', 'کارشناس', 'شماره صورت‌جلسه', 'دلیل / توضیح'],
+        rows,
+      };
+    }
+    case 'ORG': {
+      const ordered = unitsTreeOrder(workshopUnits());
+      const rows = ordered.map(({ unit, depth }) => [
+        `${'—'.repeat(depth)} ${unit.code}`,
+        unit.title,
+        UNIT_TYPE_LABELS[unit.unitType] ?? '—',
+        fmt(depth + 1),
+        unit.managerName || '—',
+        fmt(unit.approvedHeadcount ?? 0),
+        fmt(workshopJobs().filter((job) => job.unitId === unit.id).length),
+        unit.active === false ? 'غیرفعال' : 'فعال',
+      ]);
+      return {
+        title: 'ساختار سازمانی و نیروی مصوب',
+        subtitle: `${workshop.workshopName} — ${fmt(ordered.length)} واحد`,
+        columns: ['کد واحد', 'عنوان واحد', 'نوع', 'سطح', 'مسئول', 'نیروی مصوب', 'مشاغل', 'وضعیت'],
+        rows,
+      };
+    }
+    case 'EMPLOYEES': {
+      const rows = employees
+        .filter((employee) => !unitId || employee.unitId === unitId)
+        .map((employee) => {
+          const job = employeeJob(employee);
+          const unit = employee.unitId ? unitById(employee.unitId) : null;
+          return [
+            employee.personnelCode,
+            `${employee.firstName} ${employee.lastName}`.trim(),
+            unit?.title ?? '—',
+            job ? `${job.title} (${job.jobCode})` : '—',
+            employee.group ? fmt(employee.group) : '—',
+            CONTRACT_TYPE_LABELS[employee.contractType] ?? '—',
+            employee.hireDate || '—',
+            fmt(employeeServiceYears(employee), 1),
+            EMPLOYEE_STATUS_LABELS[employee.status] ?? '—',
+          ];
+        });
+      return {
+        title: 'فهرست کارکنان',
+        subtitle: `${workshop.workshopName}${unitLabel} — ${fmt(rows.length)} نفر`,
+        columns: ['کد پرسنلی', 'نام و نام خانوادگی', 'واحد', 'شغل', 'گروه', 'قرارداد', 'تاریخ استخدام', 'سابقه (سال)', 'وضعیت'],
+        rows,
+      };
+    }
+    case 'EMPLOYEE_DOSSIER': {
+      const employee = employeeById(employeeId) ?? employees[0] ?? null;
+      if (!employee) {
+        return { title: 'پرونده پرسنلی کارمند', subtitle: workshop.workshopName, columns: [], rows: [], html: '<p class="muted">کارمندی ثبت نشده است.</p>' };
+      }
+      const job = employeeJob(employee);
+      const unit = employee.unitId ? unitById(employee.unitId) : null;
+      const history = [...(employee.jobChanges ?? [])].reverse();
+      const identity = [
+        ['کد پرسنلی', employee.personnelCode],
+        ['نام و نام خانوادگی', `${employee.firstName} ${employee.lastName}`.trim()],
+        ['نام پدر', employee.fatherName || '—'],
+        ['کد ملی', employee.nationalId || '—'],
+        ['تاریخ تولد', employee.birthDate || '—'],
+        ['وضعیت تأهل', MARITAL_LABELS[employee.maritalStatus] ?? '—'],
+        ['تعداد فرزند', fmt(employee.childrenCount ?? 0)],
+      ];
+      const placement = [
+        ['واحد سازمانی', unit ? `${unit.title} (${unit.code})` : '—'],
+        ['شغل', job ? `${job.title} (${job.jobCode})` : '—'],
+        ['گروه شغلی', employee.group ? fmt(employee.group) : '—'],
+        ['سرپرست', employee.supervisorName || '—'],
+        ['نوع قرارداد', CONTRACT_TYPE_LABELS[employee.contractType] ?? '—'],
+        ['تاریخ استخدام', employee.hireDate || '—'],
+        ['سابقه مؤثر', `${fmt(employeeServiceYears(employee), 1)} سال`],
+        ['وضعیت', EMPLOYEE_STATUS_LABELS[employee.status] ?? '—'],
+        ['مزد شغل روزانه', employee.dailyJobWage ? fmt(employee.dailyJobWage) : '—'],
+        ['سنوات تجمیعی', employee.priorAccumulatedSeniority ? fmt(employee.priorAccumulatedSeniority) : '—'],
+        ['بیمه', employee.insured ? `بیمه‌شده${employee.insuranceNumber ? ` — ${employee.insuranceNumber}` : ''}` : 'غیربیمه'],
+      ];
+      const html = `
+        <h4 class="report-section-title">۱. هویت</h4>
+        ${reportTableHtml(['عنوان', 'مقدار'], identity)}
+        <h4 class="report-section-title">۲. استخدام و جایگاه سازمانی</h4>
+        ${reportTableHtml(['عنوان', 'مقدار'], placement)}
+        <h4 class="report-section-title">۳. تاریخچه ارتقا و تغییر شغل</h4>
+        ${history.length === 0
+          ? '<p class="muted">تغییری ثبت نشده است.</p>'
+          : reportTableHtml(
+              ['تاریخ', 'شغل قبلی', 'شغل جدید', 'گروه قبلی', 'گروه جدید', 'دلیل'],
+              history.map((row) => [
+                row.date || '—',
+                row.fromJobTitle || row.fromJobCode || '—',
+                row.toJobTitle || row.toJobCode || '—',
+                row.fromGroup ? fmt(row.fromGroup) : '—',
+                row.toGroup ? fmt(row.toGroup) : '—',
+                row.reason || '—',
+              ]),
+            )}`;
+      return {
+        title: 'پرونده پرسنلی کارمند',
+        subtitle: `${employee.firstName} ${employee.lastName} — ${employee.personnelCode}`,
+        columns: ['عنوان', 'مقدار'],
+        rows: [...identity, ...placement],
+        html,
+      };
+    }
+    case 'DISTRIBUTION': {
+      const byGroup = Array.from({ length: 20 }, (_, index) => index + 1).map((group) => {
+        const members = employees.filter((employee) => Number(employee.group) === group);
+        return [
+          `گروه ${fmt(group)}`,
+          fmt(members.length),
+          employees.length > 0 ? `${fmt((members.length / employees.length) * 100, 1)}٪` : '۰٪',
+          members.map((employee) => employee.personnelCode).join('، ') || '—',
+        ];
+      }).filter((row) => row[1] !== '۰');
+      const byUnit = unitsTreeOrder(workshopUnits()).map(({ unit }) => {
+        const members = employees.filter((employee) => employee.unitId === unit.id);
+        return [unit.title, unit.code, fmt(members.length), members.map((employee) => employee.personnelCode).join('، ') || '—'];
+      });
+      const html = `
+        <h4 class="report-section-title">توزیع بر اساس گروه شغلی</h4>
+        ${reportTableHtml(['گروه', 'تعداد کارکنان', 'سهم', 'کدهای پرسنلی'], byGroup)}
+        <h4 class="report-section-title">توزیع بر اساس واحد سازمانی</h4>
+        ${reportTableHtml(['واحد', 'کد', 'تعداد کارکنان', 'کدهای پرسنلی'], byUnit)}`;
+      return {
+        title: 'توزیع کارکنان بر اساس گروه و واحد',
+        subtitle: `${workshop.workshopName} — ${fmt(employees.length)} نفر`,
+        columns: ['گروه', 'تعداد کارکنان', 'سهم', 'کدهای پرسنلی'],
+        rows: byGroup,
+        html,
+      };
+    }
+    case 'PAYROLL': {
+      const schemeCode = arrearsSchemeCode();
+      const rows = [];
+      let totalNet = 0;
+      for (const employee of employees) {
+        const outcome = computeEmployeePayroll(employee, period, { schemeCode, days: 30 });
+        if (outcome.error) continue;
+        totalNet += outcome.result.netPayable;
+        rows.push([
+          employee.personnelCode,
+          `${employee.firstName} ${employee.lastName}`.trim(),
+          fmt(outcome.group),
+          fmt(outcome.result.monthlyJobWage),
+          fmt(outcome.result.monthlySeniorityWage),
+          fmt(outcome.result.monthlyBaseWage),
+          fmt(outcome.result.overtimePay + outcome.result.shiftPay + outcome.result.nightWorkPay + outcome.result.otherWageAllowances),
+          fmt(outcome.result.welfareSubtotal),
+          fmt(-outcome.result.workerInsurance),
+          outcome.result.tax === 0 ? '۰' : fmt(-outcome.result.tax),
+          fmt(outcome.result.netPayable),
+        ]);
+      }
+      rows.push(['—', 'جمع کل', '', '', '', '', '', '', '', '', fmt(totalNet)]);
+      return {
+        title: 'فیش حقوقی ماهانه کارکنان',
+        subtitle: `${workshop.workshopName} — ${periodLabel(period)} — ${fmt(rows.length - 1)} فیش`,
+        columns: ['کد پرسنلی', 'نام', 'گروه', 'مزد شغل', 'پایه سنوات', 'مزد مبنا', 'فوق‌العاده‌ها', 'مزایای رفاهی', 'بیمه', 'مالیات', 'خالص'],
+        rows,
+      };
+    }
+    case 'ARREARS': {
+      const rows = arrearsState.rows;
+      if (rows.length === 0) {
+        return {
+          title: 'خلاصه معوقات دوره',
+          subtitle: workshop.workshopName,
+          columns: [],
+          rows: [],
+          html: '<p class="muted">ابتدا در ماژول «محاسبه معوقات» دوره را محاسبه کنید تا گزارش ساخته شود.</p>',
+        };
+      }
+      const employee = employeeById(arrearsState.employeeId);
+      const totalDifference = rows.reduce((sum, row) => sum + row.difference, 0);
+      const tableRows = rows.map((row) => [
+        periodLabel(row.period),
+        fmt(row.group),
+        fmt(row.jobWage),
+        fmt(row.seniority),
+        fmt(row.welfare),
+        fmt(row.entitlement),
+        fmt(row.paid),
+        `${row.difference < 0 ? '−' : ''}${fmt(Math.abs(row.difference))}`,
+      ]);
+      tableRows.push(['جمع', '', '', '', '', fmt(rows.reduce((sum, row) => sum + row.entitlement, 0)), fmt(rows.reduce((sum, row) => sum + row.paid, 0)), `${totalDifference < 0 ? '−' : ''}${fmt(Math.abs(totalDifference))}`]);
+      return {
+        title: 'خلاصه معوقات دوره',
+        subtitle: `${employee ? `${employee.firstName} ${employee.lastName} — ${employee.personnelCode}` : ''} — ${periodLabel(arrearsState.from)} تا ${periodLabel(arrearsState.to)}`,
+        columns: ['دوره', 'گروه', 'مزد شغل', 'پایه سنوات', 'مزایای رفاهی', 'استحقاقی', 'پرداختی', 'مابه‌التفاوت'],
+        rows: tableRows,
+      };
+    }
+    case 'YEAR_COMPARE': {
+      const rows = [];
+      for (let group = 1; group <= 20; group += 1) {
+        const table1405 = core.findWageTable(state.data, { schemeCode: arrearsSchemeCode(), fiscalYear: 1405, group, asOfDate: '1405-03-15' });
+        const table1404 = core.findWageTable(state.data, { schemeCode: arrearsSchemeCode(), fiscalYear: 1404, group, asOfDate: '1405-03-15' });
+        const rate = core.getSeniorityRate(state.data, { schemeCode: arrearsSchemeCode(), group, fiscalYear: 1405, asOfDate: '1405-03-15' });
+        const growth = table1405 && table1404
+          ? ((table1405.dailyJobWage - table1404.dailyJobWage) / table1404.dailyJobWage) * 100
+          : null;
+        rows.push([
+          fmt(group),
+          table1404 ? fmt(table1404.dailyJobWage) : '—',
+          table1405 ? fmt(table1405.dailyJobWage) : '—',
+          growth === null ? '—' : `${growth >= 0 ? '+' : '−'}${fmt(Math.abs(growth), 1)}٪`,
+          rate.available ? fmt(rate.rate) : '—',
+          rate.available ? fmt(rate.rate * 30) : '—',
+        ]);
+      }
+      return {
+        title: 'مقایسه مزد ۱۴۰۴ و ۱۴۰۵',
+        subtitle: `${workshop.workshopName} — ۲۰ گروه شغلی (ریال)`,
+        columns: ['گروه', 'مزد شغل روزانه ۱۴۰۴', 'مزد شغل روزانه ۱۴۰۵', 'رشد', 'نرخ پایه سنوات ۱۴۰۵', 'سنوات ماهانه (۳۰ روز)'],
+        rows,
+      };
+    }
+    case 'OVERVIEW':
+    default: {
+      const evaluated = jobs.filter((job) => job.evaluation).length;
+      const approved = jobs.filter((job) => normalizeApproval(job.evaluation)?.status === 'COMMITTEE_APPROVED' || normalizeApproval(job.evaluation)?.status === 'MINISTRY_APPROVED').length;
+      const units = workshopUnits().length;
+      const activeEmployees = employees.filter((employee) => employee.status === 'ACTIVE').length;
+      const cards = [
+        ['واحدهای سازمانی', fmt(units)],
+        ['مشاغل', `${fmt(jobs.length)} (${fmt(evaluated)} ارزیابی‌شده)`],
+        ['گروه‌های تأییدشده', fmt(approved)],
+        ['کارکنان', `${fmt(employees.length)} (${fmt(activeEmployees)} فعال)`],
+      ];
+      const unassigned = employees.filter((employee) => !employeePayrollGroup(employee)).length;
+      const html = `
+        <div class="summary-grid profile-summary">
+          ${cards.map(([label, value]) => `<div class="summary-card"><span class="label">${label}</span><span class="value">${value}</span></div>`).join('')}
+        </div>
+        <h4 class="report-section-title">وضعیت تکمیل داده‌ها</h4>
+        ${reportTableHtml(
+          ['شاخص', 'مقدار', 'وضعیت'],
+          [
+            ['مشاغل دارای سرپرست معتبر', fmt(jobs.filter((job) => job.supervisorJobCode && jobs.some((row) => row.jobCode === job.supervisorJobCode)).length), '—'],
+            ['مشاغل بدون واحد سازمانی متصل', fmt(jobs.filter((job) => !job.unitId).length), 'نیازمند تکمیل'],
+            ['مشاغل بدون ارزیابی', fmt(jobs.length - evaluated), 'نیازمند تکمیل'],
+            ['کارکنان بدون گروه شغلی', fmt(unassigned), 'نیازمند تکمیل'],
+            ['کارکنان بدون قرارداد ثبت‌شده', fmt(employees.filter((employee) => !employee.contractType).length), '—'],
+          ],
+        )}
+        <h4 class="report-section-title">توزیع مشاغل بر اساس واحد</h4>
+        ${reportTableHtml(
+          ['واحد', 'تعداد شغل', 'نیروی مصوب', 'نیروی فعلی'],
+          unitsTreeOrder(workshopUnits()).map(({ unit }) => {
+            const unitJobs = jobs.filter((job) => job.unitId === unit.id);
+            return [unit.title, fmt(unitJobs.length), fmt(unit.approvedHeadcount ?? 0), fmt(unitJobs.reduce((sum, job) => sum + Number(job.headcount || 0), 0))];
+          }),
+        )}`;
+      return {
+        title: 'گزارش جامع کارگاه',
+        subtitle: `${workshop.workshopName} — ارزیابی، ساختار و نیروی انسانی`,
+        columns: ['شاخص', 'مقدار', 'وضعیت'],
+        rows: cards,
+        html,
+      };
+    }
+  }
+}
+
+function buildReport() {
+  const workshop = activeWorkshop();
+  const message = document.getElementById('rp-msg');
+  if (!workshop) {
+    if (message) message.textContent = 'ابتدا یک کارگاه انتخاب کنید.';
+    return;
+  }
+  const type = selectValue(document.getElementById('rp-type'), 'JOBS_LIST');
+  const period = selectValue(document.getElementById('rp-period'), '1405-01');
+  const employeeId = selectValue(document.getElementById('rp-employee'), '');
+  const unitId = selectValue(document.getElementById('rp-unit'), '');
+  reportState.type = type;
+  reportState.period = period;
+  reportState.employeeId = employeeId;
+  reportState.unitId = unitId;
+
+  const content = buildReportContent({ type, period, employeeId, unitId, workshop });
+  reportState.columns = content.columns ?? [];
+  reportState.rows = content.rows ?? [];
+  reportState.title = content.title;
+
+  const sheet = document.getElementById('rp-sheet');
+  const letterhead = document.getElementById('rp-letterhead');
+  const body = document.getElementById('rp-body');
+  const footer = document.getElementById('rp-footer');
+  if (!sheet || !letterhead || !body) return;
+  sheet.hidden = false;
+  const reportNo = `${period.replace('-', '')}/${String(REPORT_TYPES.findIndex((row) => row.code === type) + 1).padStart(2, '0')}`;
+  letterhead.innerHTML = `
+    <div class="report-brand">
+      <strong>${escapeHtml(workshop.companyName || workshop.workshopName)}</strong>
+      <span>${escapeHtml(workshop.workshopName)} — کد کارگاه ${escapeHtml(workshop.workshopCode)}</span>
+      <span class="small muted">شناسه ملی: ${escapeHtml(workshop.nationalId || '—')} — واحد پول: ریال (IRR)</span>
+    </div>
+    <div class="report-head-meta">
+      <strong>${escapeHtml(content.title)}</strong>
+      <span>شماره گزارش: <span dir="ltr">${escapeHtml(localizeDigits(reportNo))}</span></span>
+      <span>تاریخ گزارش: ${escapeHtml(localizeDigits(todayJalali()))}</span>
+    </div>`;
+  body.innerHTML = `
+    <div class="report-subtitle">${escapeHtml(content.subtitle ?? '')}</div>
+    ${content.html ?? reportTableHtml(content.columns ?? [], content.rows ?? [])}
+    ${reportState.rows.length === 0 && !content.html ? '<p class="muted">داده‌ای برای این گزارش وجود ندارد.</p>' : ''}`;
+  if (footer) {
+    footer.textContent = `تولیدشده در سامانه جامع ارزیابی و طبقه‌بندی مشاغل — ${fmt(reportState.rows.length)} ردیف داده — داده محلی (بدون Backend)`;
+  }
+  if (message) {
+    message.textContent = `گزارش «${content.title}» با ${fmt(reportState.rows.length)} ردیف ساخته شد.`;
+    message.dataset.state = 'ok';
+  }
+  sheet.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+
+function exportReportCsv() {
+  if (!reportState.columns || reportState.columns.length === 0 || !reportState.rows.length) {
+    showToast('ابتدا گزارشی با جدول داده بسازید.');
+    return false;
+  }
+  const lines = [
+    reportState.columns.map((column) => `"${column}"`).join(','),
+    ...reportState.rows.map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')),
+  ];
+  const ok = downloadTextFile(`report-${reportState.type}.csv`, lines.join('\r\n'), 'text/csv;charset=utf-8');
+  if (ok) showToast('خروجی Excel (CSV) گزارش آماده شد');
+  return ok;
+}
+
+function buildComparison() {
+  const message = document.getElementById('cmp-msg');
+  const select = document.getElementById('cmp-jobs');
+  const ids = [...(select?.options ?? [])]
+    .filter((option) => option.selected || option.hasAttribute('selected'))
+    .map((option) => option.getAttribute('value'));
+  const jobs = ids.map((id) => jobById(id)).filter(Boolean);
+  if (jobs.length < 2) {
+    if (message) message.textContent = 'برای مقایسه، حداقل دو شغل را انتخاب کنید.';
+    return;
+  }
+  if (jobs.length > 5) {
+    if (message) message.textContent = 'حداکثر ۵ شغل قابل مقایسه است.';
+    return;
+  }
+  if (message) message.textContent = '';
+
+  const criteria = COMPARE_CRITERIA.map((criterion) => {
+    const values = jobs.map((job) => compareValue(job, criterion.code));
+    const normalized = values.map((value) => Math.max(0, Math.min(100, (value / criterion.max) * 100)));
+    return { ...criterion, values, normalized, spread: Math.max(...values) - Math.min(...values) };
+  });
+
+  renderRadar(jobs, criteria);
+  renderCompareTable(jobs, criteria);
+  showToast(`مقایسه ${fmt(jobs.length)} شغل ساخته شد`);
+}
+
+function renderRadar(jobs, criteria) {
+  const container = document.getElementById('cmp-chart');
+  const legend = document.getElementById('cmp-legend');
+  if (!container) return;
+  const size = 360;
+  const center = size / 2;
+  const radius = 118;
+  const angleFor = (index) => (-90 + (360 / criteria.length) * index) * (Math.PI / 180);
+  const pointFor = (index, value) => {
+    const angle = angleFor(index);
+    const distance = (Math.max(0, Math.min(100, value)) / 100) * radius;
+    return [center + distance * Math.cos(angle), center + distance * Math.sin(angle)];
+  };
+
+  const rings = [25, 50, 75, 100]
+    .map((ratio) => {
+      const points = criteria
+        .map((_, index) => pointFor(index, ratio).map((value) => value.toFixed(1)).join(','))
+        .join(' ');
+      return `<polygon class="radar-ring" points="${points}" />`;
+    })
+    .join('');
+
+  const axes = criteria
+    .map((criterion, index) => {
+      const [x, y] = pointFor(index, 100);
+      const [labelX, labelY] = pointFor(index, 128);
+      return `<line class="radar-axis" x1="${center}" y1="${center}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" />
+        <text class="radar-label" x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle">${escapeHtml(criterion.short)}</text>`;
+    })
+    .join('');
+
+  const polygons = jobs
+    .map((job, jobIndex) => {
+      const points = criteria
+        .map((criterion, index) => pointFor(index, criterion.normalized[jobIndex]).map((value) => value.toFixed(1)).join(','))
+        .join(' ');
+      return `<polygon class="radar-series radar-series-${jobIndex}" style="stroke:${RADAR_COLORS[jobIndex % RADAR_COLORS.length]};fill:${RADAR_COLORS[jobIndex % RADAR_COLORS.length]}22" points="${points}" />`;
+    })
+    .join('');
+
+  container.innerHTML = `<svg viewBox="0 0 ${size} ${size}" role="img" aria-label="نمودار رادار مقایسه مشاغل">
+    ${rings}${axes}${polygons}
+  </svg>`;
+  if (legend) {
+    legend.innerHTML = jobs
+      .map(
+        (job, index) => `<span class="cmp-legend-item">
+          <i style="background:${RADAR_COLORS[index % RADAR_COLORS.length]}"></i>
+          ${escapeHtml(job.title)} (${escapeHtml(job.jobCode)})
+        </span>`,
+      )
+      .join('');
+  }
+}
+
+function renderCompareTable(jobs, criteria) {
+  const table = document.getElementById('cmp-table');
+  if (!table) return;
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>معیار (سقف)</th>
+        ${jobs.map((job, index) => `<th><span class="cmp-head" style="border-color:${RADAR_COLORS[index % RADAR_COLORS.length]}">${escapeHtml(job.title)}</span></th>`).join('')}
+        <th>اختلاف</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${criteria
+        .map(
+          (criterion) => `<tr>
+            <td>${escapeHtml(criterion.title)} <span class="small muted">(${fmt(criterion.max)})</span></td>
+            ${criterion.values
+              .map(
+                (value, index) => `<td class="num">
+                  <strong>${fmt(value, value % 1 === 0 ? 0 : 1)}</strong>
+                  <div class="small muted">${fmt(criterion.normalized[index], 0)}٪ از سقف</div>
+                </td>`,
+              )
+              .join('')}
+            <td class="num">${fmt(criterion.spread, criterion.spread % 1 === 0 ? 0 : 1)}</td>
+          </tr>`,
+        )
+        .join('')}
+    </tbody>`;
+}
+
 /* ================================== شروع ================================== */
 
 async function boot() {
@@ -4724,6 +5454,7 @@ async function boot() {
   initEmployees();
   initPayrollMonthly();
   initArrears();
+  initReports();
   initSettings();
 
   const printButton = document.getElementById('print-btn');
