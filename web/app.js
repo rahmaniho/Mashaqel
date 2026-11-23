@@ -13,6 +13,7 @@ const state = {
   groupResult: null,
   evalResult: null,
   evalControls: [],
+  store: { workshops: [], activeWorkshopId: null },
 };
 
 const NUMBER_FORMAT = {
@@ -119,21 +120,644 @@ function factorOf(sub) {
 
 /* ============================== تب‌ها و ارقام ============================== */
 
-function initTabs() {
-  document.querySelectorAll('.tab').forEach((tab) => {
-    tab.addEventListener('click', () => {
-      const name = tab.dataset.tab;
-      document.querySelectorAll('.tab').forEach((item) => {
-        const active = item === tab;
-        item.classList.toggle('is-active', active);
-        item.setAttribute('aria-selected', String(active));
-      });
-      document.querySelectorAll('.panel').forEach((panel) => {
-        panel.classList.toggle('is-active', panel.id === `panel-${name}`);
-      });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+/* ======================= ذخیره‌سازی محلی و مدل کارگاه ======================= */
+
+const STORAGE_KEY = 'mashaqel.state.v2';
+const SCHEME_STATUS_LABELS = {
+  NOT_STARTED: 'شروع نشده',
+  IN_PROGRESS: 'در حال اجرا',
+  EXECUTED: 'اجرا شده',
+};
+
+function readStore() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return {
+      workshops: Array.isArray(parsed?.workshops) ? parsed.workshops : [],
+      activeWorkshopId: parsed?.activeWorkshopId ?? null,
+    };
+  } catch {
+    return { workshops: [], activeWorkshopId: null };
+  }
+}
+
+function writeStore(next) {
+  state.store = next;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  } catch (error) {
+    showToast(`ذخیره‌سازی محلی ناموفق بود: ${error.message}`);
+  }
+  renderWorkshopPicker();
+  if (state.data) renderDashboard();
+}
+
+function newId(prefix) {
+  const random = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+  return `${prefix}-${random.slice(0, 8)}`;
+}
+
+function activeWorkshop() {
+  return state.store.workshops.find((row) => row.id === state.store.activeWorkshopId) ?? null;
+}
+
+let toastTimer = null;
+function showToast(message) {
+  const toast = document.getElementById('toast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.classList.add('is-visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 3800);
+}
+
+/* ================================= مسیریابی ================================= */
+
+const ROUTES = {
+  dashboard: {
+    title: 'داشبورد',
+    subtitle: 'نمای کلی سامانه و وضعیت داده‌های محاسباتی',
+    view: 'view-dashboard',
+  },
+  workshops: {
+    title: 'مدیریت کارگاه‌ها',
+    subtitle: 'تعریف کارگاه، شناسه‌ها و وضعیت اجرای طرح طبقه‌بندی',
+    view: 'view-workshops',
+  },
+  payroll: {
+    title: 'محاسبات حقوق و دستمزد',
+    subtitle: 'مزد ۱۴۰۵، پایه سنوات گروهی و خالص پرداختی — واحد ریال',
+    view: 'view-payroll',
+  },
+  group: {
+    title: 'تعیین گروه شغلی',
+    subtitle: 'تطبیق امتیاز شغل با دامنه امتیاز مصوب گروه‌ها',
+    view: 'view-group',
+  },
+  evaluation: {
+    title: 'ارزیابی مشاغل',
+    subtitle: 'نظام امتیازی چهارعاملی ۱۳۸۹ با جدول‌های رسمی',
+    view: 'view-evaluation',
+  },
+  settings: {
+    title: 'تنظیمات',
+    subtitle: 'پشتیبان‌گیری، بازیابی و مشخصات فنی نسخه',
+    view: 'view-settings',
+  },
+};
+const DEFAULT_ROUTE = 'dashboard';
+
+function navigate(route, options = {}) {
+  const target = ROUTES[route] ? route : DEFAULT_ROUTE;
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    const isActive = item.dataset.route === target;
+    item.classList.toggle('is-active', isActive);
+    if (isActive) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('.view').forEach((view) => {
+    view.classList.toggle('is-active', view.id === ROUTES[target].view);
+  });
+  const title = document.getElementById('page-title');
+  const subtitle = document.getElementById('page-subtitle');
+  if (title) title.textContent = ROUTES[target].title;
+  if (subtitle) subtitle.textContent = ROUTES[target].subtitle;
+  document.body.classList.remove('sidebar-open');
+  if (!options.silent) {
+    try {
+      const hash = `#/${target}`;
+      if (window.location?.hash !== hash) window.location.hash = hash;
+    } catch {
+      /* محیط‌های بدون location */
+    }
+    if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  if (target === 'dashboard') renderDashboard();
+}
+
+function currentHashRoute() {
+  try {
+    return (window.location?.hash ?? '').replace('#/', '').replace('#', '');
+  } catch {
+    return '';
+  }
+}
+
+function initRouter() {
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    item.addEventListener('click', () => {
+      if (item.disabled) return;
+      navigate(item.dataset.route);
     });
   });
+  document.querySelectorAll('[data-route]').forEach((element) => {
+    if (element.classList.contains('nav-item')) return;
+    element.addEventListener('click', () => navigate(element.dataset.route));
+  });
+  const toggle = document.getElementById('menu-toggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => document.body.classList.toggle('sidebar-open'));
+  }
+  window.addEventListener('hashchange', () => {
+    const route = currentHashRoute();
+    if (route) navigate(route, { silent: true });
+  });
+  const initial = currentHashRoute();
+  navigate(initial && ROUTES[initial] ? initial : DEFAULT_ROUTE, { silent: true });
+}
+
+function initSubtabs() {
+  document.querySelectorAll('.subtab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const name = tab.dataset.subtab;
+      document.querySelectorAll('.subtab').forEach((item) => {
+        item.classList.toggle('is-active', item === tab);
+        item.setAttribute('aria-selected', String(item === tab));
+      });
+      document.querySelectorAll('.subview').forEach((view) => {
+        view.classList.toggle('is-active', view.id === `sub-${name}`);
+      });
+    });
+  });
+}
+
+/* ================================= داشبورد ================================= */
+
+function wageRowsOf(fiscalYear) {
+  return wageRowsCache[fiscalYear] ?? [];
+}
+
+const wageRowsCache = {};
+
+function initWageRows() {
+  for (const year of [1404, 1405]) {
+    wageRowsCache[year] = state.data.wageTables
+      .filter((row) => row.fiscalYear === year && row.schemeCode === 'SERVICE_COMPANIES_NATIONWIDE')
+      .sort((a, b) => a.groupNumber - b.groupNumber);
+  }
+}
+
+function renderDashboard() {
+  if (!state.data) return;
+  const workshop = activeWorkshop();
+  const rows1405 = wageRowsOf(1405);
+  const rows1404 = wageRowsOf(1404);
+  const rateG1 = core.getSeniorityRate(state.data, {
+    schemeCode: 'NATIONAL_20_GROUP_1389',
+    group: 1,
+    fiscalYear: 1405,
+    asOfDate: '1405-05-01',
+  });
+  const params = state.data.annualParameters.find((row) => row.fiscalYear === 1405 && row.version === '1405-v2');
+  const systemB = state.data.systems.find((row) => row.code === 'EVAL_1389_POINT_FACTOR');
+
+  const kpiTarget = document.getElementById('kpi-grid');
+  if (!kpiTarget) return;
+  kpiTarget.innerHTML = `
+    <div class="kpi is-navy">
+      <span class="kpi-label">کارگاه فعال</span>
+      <span class="kpi-value">${workshop ? escapeHtml(workshop.workshopName) : 'تعریف نشده'}</span>
+      <span class="kpi-unit">${workshop ? `${escapeHtml(workshop.companyName)} — ${SCHEME_STATUS_LABELS[workshop.schemeStatus] ?? ''}` : 'از بخش مدیریت کارگاه‌ها اضافه کنید'}</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">مزد شغل روزانه گروه ۱ (۱۴۰۵)</span>
+      <span class="kpi-value">${fmt(rows1405[0]?.dailyJobWage ?? core.MIN_DAILY_1405)}</span>
+      <span class="kpi-unit">ریال — کف ${fmt(core.MIN_DAILY_1405)}</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">نرخ پایه سنوات گروه ۱ (۱۴۰۵)</span>
+      <span class="kpi-value">${rateG1.available ? fmt(rateG1.rate) : '—'}</span>
+      <span class="kpi-unit">ریال در روز</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">امتیاز نظری نظام ۱۳۸۹</span>
+      <span class="kpi-value">${fmt(systemB?.maxTheoreticalScore ?? 1137)}</span>
+      <span class="kpi-unit">امتیاز — ۴ عامل، ۱۴ زیرعامل</span>
+    </div>`;
+
+  const note = document.getElementById('wage-chart-note');
+  if (note) note.textContent = `نسخه پارامتر ${params?.version ?? '1405-v2'} — ${fmt(rows1405.length)} گروه`;
+
+  renderBarChart(rows1405, rows1404);
+  renderSeniorityChart();
+  renderDataStatus();
+  renderLimitations();
+}
+
+function renderBarChart(rows1405, rows1404) {
+  const container = document.getElementById('wage-chart');
+  if (!container) return;
+  if (rows1405.length === 0) {
+    container.innerHTML = '<div class="empty-state">جدول مزد ۱۴۰۵ بارگذاری نشده است.</div>';
+    return;
+  }
+  const width = 640;
+  const height = 230;
+  const padding = { top: 14, right: 10, bottom: 26, left: 54 };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const max = Math.max(...rows1405.map((row) => row.dailyJobWage)) * 1.05;
+  const min = Math.min(...rows1405.map((row) => row.dailyJobWage)) * 0.95;
+  const scale = (value) => padding.top + innerHeight - ((value - min) / (max - min || 1)) * innerHeight;
+  const slot = innerWidth / rows1405.length;
+  const barWidth = Math.max(8, slot * 0.62);
+
+  const gridLines = [0.25, 0.5, 0.75, 1]
+    .map((ratio) => {
+      const value = min + (max - min) * ratio;
+      const y = scale(value);
+      return `<line class="grid-line" x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" />
+        <text class="axis-label" x="${padding.left - 6}" y="${y + 3}" text-anchor="end">${fmt(Math.round(value / 1000))}ه</text>`;
+    })
+    .join('');
+
+  const bars = rows1405
+    .map((row, index) => {
+      const x = padding.left + index * slot + (slot - barWidth) / 2;
+      const y = scale(row.dailyJobWage);
+      const previous = rows1404[index];
+      const growth = previous ? ((row.dailyJobWage - previous.dailyJobWage) / previous.dailyJobWage) * 100 : null;
+      const title = `گروه ${row.groupNumber}: ${fmt(row.dailyJobWage)} ریال${growth === null ? '' : ` — رشد ${fmt(growth, 1)}٪`}`;
+      return `<rect class="bar" x="${x}" y="${y}" width="${barWidth}" height="${padding.top + innerHeight - y}" rx="2">
+          <title>${escapeHtml(title)}</title>
+        </rect>
+        <text class="axis-label" x="${x + barWidth / 2}" y="${height - 10}" text-anchor="middle">${fmt(row.groupNumber)}</text>`;
+    })
+    .join('');
+
+  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="نمودار مزد روزانه ۱۴۰۵ به تفکیک گروه">${gridLines}${bars}</svg>`;
+}
+
+function renderSeniorityChart() {
+  const container = document.getElementById('seniority-chart');
+  if (!container) return;
+  const rows = state.data.seniorityTables
+    .filter((row) => row.tableType === 'CUMULATIVE_PAST_SERVICE' && row.yearsOfService !== null)
+    .sort((a, b) => a.yearsOfService - b.yearsOfService);
+  if (rows.length === 0) {
+    container.innerHTML = '<div class="empty-state">جدول سنوات تجمیعی در دسترس نیست.</div>';
+    return;
+  }
+  const width = 640;
+  const height = 230;
+  const padding = { top: 14, right: 12, bottom: 26, left: 54 };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const maxYears = rows[rows.length - 1].yearsOfService;
+  const maxValue = Math.max(...rows.map((row) => row.dailySeniorityAmount));
+  const x = (years) => padding.left + (years / maxYears) * innerWidth;
+  const y = (value) => padding.top + innerHeight - (value / maxValue) * innerHeight;
+
+  const points = rows.map((row) => `${x(row.yearsOfService).toFixed(1)},${y(row.dailySeniorityAmount).toFixed(1)}`);
+  const area = `M${padding.left},${padding.top + innerHeight} L${points.join(' L')} L${padding.left + innerWidth},${padding.top + innerHeight} Z`;
+  const labels = rows
+    .filter((row) => row.yearsOfService % 5 === 0)
+    .map(
+      (row) =>
+        `<text class="axis-label" x="${x(row.yearsOfService)}" y="${height - 10}" text-anchor="middle">${fmt(row.yearsOfService)}</text>`,
+    )
+    .join('');
+  const grid = [0.25, 0.5, 0.75, 1]
+    .map((ratio) => {
+      const value = maxValue * ratio;
+      return `<line class="grid-line" x1="${padding.left}" y1="${y(value)}" x2="${width - padding.right}" y2="${y(value)}" />
+        <text class="axis-label" x="${padding.left - 6}" y="${y(value) + 3}" text-anchor="end">${fmt(Math.round(value / 1000))}ه</text>`;
+    })
+    .join('');
+
+  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="نمودار سنوات تجمیعی تا پایان ۱۴۰۴">
+      ${grid}
+      <path class="area-path" d="${area}" />
+      <path class="line-path" d="M${points.join(' L')}" />
+      ${labels}
+    </svg>`;
+}
+
+function renderDataStatus() {
+  const target = document.getElementById('data-status');
+  if (!target) return;
+  const counts = [
+    ['جدول مزد ۱۴۰۴ و ۱۴۰۵', `${fmt(state.data.wageTables.length)} ردیف`],
+    ['نرخ و سنوات تجمیعی', `${fmt(state.data.seniorityTables.length)} ردیف`],
+    ['بازه امتیاز گروه‌ها', `${fmt(state.data.groupRanges.length)} بازه`],
+    ['سطوح امتیازی بارگذاری‌شده', `${fmt(state.data.levels.length)} سطح`],
+    ['امتیازهای ثبت‌شده', `${fmt(state.data.scores.length)} رکورد`],
+    ['نسخه پارامترهای سالانه', `${fmt(state.data.annualParameters.filter((row) => row.fiscalYear === 1405).length)} نسخه ۱۴۰۵`],
+    ['کارگاه‌های ثبت‌شده', `${fmt(state.store.workshops.length)} کارگاه`],
+  ];
+  target.innerHTML = counts.map(([label, value]) => `<li><span>${label}</span><b>${value}</b></li>`).join('');
+}
+
+function renderLimitations() {
+  const target = document.getElementById('limitations');
+  if (!target) return;
+  const items = [
+    'پلکان مالیات بر حقوق ۱۴۰۵ ثبت نشده است؛ مالیات صفر با هشدار محاسبه می‌شود.',
+    'جدول رسمی «مسئولیت ایمنی دیگران» در دسترس نیست؛ این زیرعامل غیرفعال است و امتیاز کل «ناقص» علامت می‌خورد.',
+    'نظام ارزیابی ۱۳۹۵ بدون «طرح مصوب کارگاه» با شماره تأییدیه اداره کل روابط کار فعال نمی‌شود.',
+    'این نسخه بدون Backend است؛ داده‌ها تنها در همین مرورگر ذخیره می‌شوند و پشتیبان‌گیری دستی لازم است.',
+  ];
+  target.innerHTML = items.map((item) => `<li>${item}</li>`).join('');
+}
+
+/* ============================== مدیریت کارگاه‌ها ============================== */
+
+function renderWorkshopPicker() {
+  const select = document.getElementById('active-workshop');
+  if (!select) return;
+  const options = ['<option value="">بدون کارگاه (پیش‌فرض)</option>'];
+  for (const workshop of state.store.workshops) {
+    options.push(
+      `<option value="${escapeHtml(workshop.id)}">${escapeHtml(workshop.workshopName)} — ${escapeHtml(workshop.workshopCode)}</option>`,
+    );
+  }
+  select.innerHTML = options.join('');
+  setElementValue(select, state.store.activeWorkshopId ?? '');
+}
+
+function initWorkshops() {
+  const picker = document.getElementById('active-workshop');
+  if (picker) {
+    picker.addEventListener('change', () => {
+      const value = selectValue(picker, '');
+      writeStore({ ...state.store, activeWorkshopId: value || null });
+      const workshop = activeWorkshop();
+      showToast(workshop ? `کارگاه فعال: ${workshop.workshopName}` : 'کارگاه فعال حذف شد');
+      renderWorkshopTable();
+    });
+  }
+
+  const form = document.getElementById('workshop-form');
+  const newButton = document.getElementById('workshop-new');
+  const cancelButton = document.getElementById('workshop-cancel');
+
+  if (newButton) {
+    newButton.addEventListener('click', () => openWorkshopForm(null));
+  }
+  if (cancelButton) {
+    cancelButton.addEventListener('click', () => closeWorkshopForm());
+  }
+  if (form) {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      saveWorkshopFromForm();
+    });
+  }
+  const table = document.getElementById('workshop-table');
+  if (table) {
+    table.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const workshop = state.store.workshops.find((row) => row.id === button.dataset.id);
+      if (!workshop) return;
+      if (button.dataset.action === 'edit') openWorkshopForm(workshop);
+      if (button.dataset.action === 'activate') {
+        writeStore({ ...state.store, activeWorkshopId: workshop.id });
+        renderWorkshopTable();
+        showToast(`کارگاه فعال: ${workshop.workshopName}`);
+      }
+      if (button.dataset.action === 'delete') {
+        const confirmed = typeof window.confirm === 'function'
+          ? window.confirm(`حذف کارگاه «${workshop.workshopName}»؟ این عمل قابل بازگشت نیست.`)
+          : true;
+        if (!confirmed) return;
+        const workshops = state.store.workshops.filter((row) => row.id !== workshop.id);
+        const activeWorkshopId = state.store.activeWorkshopId === workshop.id ? null : state.store.activeWorkshopId;
+        writeStore({ workshops, activeWorkshopId });
+        renderWorkshopTable();
+        showToast('کارگاه حذف شد');
+      }
+    });
+  }
+  renderWorkshopPicker();
+  renderWorkshopTable();
+}
+
+function openWorkshopForm(workshop) {
+  const form = document.getElementById('workshop-form');
+  if (!form) return;
+  form.hidden = false;
+  setElementValue(document.getElementById('wf-id'), workshop?.id ?? '');
+  setElementValue(document.getElementById('wf-company'), workshop?.companyName ?? '');
+  setElementValue(document.getElementById('wf-name'), workshop?.workshopName ?? '');
+  setElementValue(document.getElementById('wf-code'), workshop?.workshopCode ?? '');
+  setElementValue(document.getElementById('wf-national'), workshop?.nationalId ?? '');
+  setElementValue(document.getElementById('wf-activity'), workshop?.activityType ?? 'تولیدی');
+  setElementValue(document.getElementById('wf-employees'), workshop?.employeeCount ?? 0);
+  setElementValue(document.getElementById('wf-manager'), workshop?.managerName ?? '');
+  setElementValue(document.getElementById('wf-phone'), workshop?.phone ?? '');
+  setElementValue(document.getElementById('wf-established'), workshop?.establishedDate ?? '');
+  setElementValue(document.getElementById('wf-scheme'), workshop?.schemeStatus ?? 'NOT_STARTED');
+  setElementValue(document.getElementById('wf-address'), workshop?.address ?? '');
+  document.getElementById('workshop-error').textContent = '';
+  form.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+
+function closeWorkshopForm() {
+  const form = document.getElementById('workshop-form');
+  if (form) form.hidden = true;
+  const error = document.getElementById('workshop-error');
+  if (error) error.textContent = '';
+}
+
+function saveWorkshopFromForm() {
+  const errorTarget = document.getElementById('workshop-error');
+  const id = document.getElementById('wf-id').value;
+  const draft = {
+    id: id || newId('ws'),
+    companyName: document.getElementById('wf-company').value.trim(),
+    workshopName: document.getElementById('wf-name').value.trim(),
+    workshopCode: document.getElementById('wf-code').value.trim(),
+    nationalId: document.getElementById('wf-national').value.trim(),
+    activityType: document.getElementById('wf-activity').value,
+    employeeCount: Number(document.getElementById('wf-employees').value || 0),
+    managerName: document.getElementById('wf-manager').value.trim(),
+    phone: document.getElementById('wf-phone').value.trim(),
+    establishedDate: document.getElementById('wf-established').value.trim(),
+    schemeStatus: document.getElementById('wf-scheme').value,
+    address: document.getElementById('wf-address').value.trim(),
+    createdAt: state.store.workshops.find((row) => row.id === id)?.createdAt ?? new Date().toISOString(),
+  };
+
+  const problems = [];
+  if (!draft.companyName) problems.push('نام شرکت الزامی است.');
+  if (!draft.workshopName) problems.push('نام کارگاه الزامی است.');
+  if (!draft.workshopCode) problems.push('کد کارگاه الزامی است.');
+  if (draft.workshopCode && !/^[A-Za-z0-9-]{3,20}$/.test(draft.workshopCode)) {
+    problems.push('کد کارگاه باید ۳ تا ۲۰ نویسه لاتین/رقم باشد.');
+  }
+  if (draft.nationalId && !/^\d{10,11}$/.test(draft.nationalId)) {
+    problems.push('شناسه ملی باید ۱۰ یا ۱۱ رقم باشد.');
+  }
+  if (
+    draft.workshopCode &&
+    state.store.workshops.some((row) => row.id !== draft.id && row.workshopCode === draft.workshopCode)
+  ) {
+    problems.push('این کد کارگاه قبلاً ثبت شده است.');
+  }
+  if (draft.establishedDate && !/^\d{4}-\d{1,2}-\d{1,2}$/.test(draft.establishedDate)) {
+    problems.push('تاریخ تأسیس باید به شکل 1400-01-01 باشد.');
+  }
+  if (problems.length > 0) {
+    if (errorTarget) errorTarget.textContent = problems.join(' ');
+    return;
+  }
+
+  const exists = state.store.workshops.some((row) => row.id === draft.id);
+  const workshops = exists
+    ? state.store.workshops.map((row) => (row.id === draft.id ? draft : row))
+    : [...state.store.workshops, draft];
+  const activeWorkshopId = state.store.activeWorkshopId ?? draft.id;
+  writeStore({ workshops, activeWorkshopId });
+  closeWorkshopForm();
+  renderWorkshopTable();
+  showToast(exists ? 'کارگاه ویرایش شد' : 'کارگاه جدید ثبت شد');
+}
+
+function renderWorkshopTable() {
+  const table = document.getElementById('workshop-table');
+  if (!table) return;
+  if (state.store.workshops.length === 0) {
+    table.innerHTML = `
+      <tbody>
+        <tr>
+          <td>
+            <div class="empty-state">
+              هنوز کارگاهی ثبت نشده است. با دکمه «کارگاه جدید» اولین کارگاه را تعریف کنید.
+              هر کارگاه داده و جداول مستقل دارد و از نوار بالای صفحه انتخاب می‌شود.
+            </div>
+          </td>
+        </tr>
+      </tbody>`;
+    return;
+  }
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>کارگاه</th><th>شرکت</th><th>کد کارگاه</th><th>شناسه ملی</th><th>فعالیت</th>
+        <th>کارکنان</th><th>مدیر</th><th>اجرای طرح</th><th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${state.store.workshops
+        .map((workshop) => {
+          const isActive = workshop.id === state.store.activeWorkshopId;
+          return `<tr class="${isActive ? 'is-highlight' : ''}">
+            <td>
+              <strong>${escapeHtml(workshop.workshopName)}</strong>
+              ${isActive ? '<div class="chip st-1">کارگاه فعال</div>' : ''}
+            </td>
+            <td>${escapeHtml(workshop.companyName)}</td>
+            <td class="num">${escapeHtml(workshop.workshopCode)}</td>
+            <td class="num">${escapeHtml(workshop.nationalId || '—')}</td>
+            <td>${escapeHtml(workshop.activityType)}</td>
+            <td class="num">${fmt(workshop.employeeCount)}</td>
+            <td>${escapeHtml(workshop.managerName || '—')}</td>
+            <td>${escapeHtml(SCHEME_STATUS_LABELS[workshop.schemeStatus] ?? '—')}</td>
+            <td>
+              <button type="button" class="icon-btn" data-action="activate" data-id="${escapeHtml(workshop.id)}" title="فعال‌سازی" ${isActive ? 'disabled' : ''}>✓</button>
+              <button type="button" class="icon-btn" data-action="edit" data-id="${escapeHtml(workshop.id)}" title="ویرایش">✎</button>
+              <button type="button" class="icon-btn" data-action="delete" data-id="${escapeHtml(workshop.id)}" title="حذف">✕</button>
+            </td>
+          </tr>`;
+        })
+        .join('')}
+    </tbody>`;
+}
+
+/* ================================ تنظیمات ================================ */
+
+function initSettings() {
+  const exportButton = document.getElementById('export-data');
+  const importInput = document.getElementById('import-data');
+  const clearButton = document.getElementById('clear-data');
+  const message = document.getElementById('settings-message');
+
+  if (exportButton) {
+    exportButton.addEventListener('click', () => {
+      const payload = {
+        schema: 'mashaqel.local-backup',
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        currency: 'IRR',
+        state: state.store,
+      };
+      try {
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `mashaqel-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        if (message) message.textContent = 'فایل پشتیبان ساخته شد.';
+      } catch {
+        if (message) message.textContent = 'ساخت فایل پشتیبان در این مرورگر ممکن نشد.';
+      }
+    });
+  }
+
+  if (importInput) {
+    importInput.addEventListener('change', async () => {
+      const file = importInput.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const incoming = parsed?.state ?? parsed;
+        if (!Array.isArray(incoming?.workshops)) throw new Error('ساختار فایل معتبر نیست (workshops یافت نشد).');
+        writeStore({
+          workshops: incoming.workshops,
+          activeWorkshopId: incoming.activeWorkshopId ?? null,
+        });
+        renderWorkshopTable();
+        renderSettingsMeta();
+        if (message) message.textContent = `بازیابی انجام شد: ${incoming.workshops.length} کارگاه.`;
+        showToast('داده‌ها بازیابی شد');
+      } catch (error) {
+        if (message) message.textContent = `بازیابی ناموفق: ${error.message}`;
+      } finally {
+        importInput.value = '';
+      }
+    });
+  }
+
+  if (clearButton) {
+    clearButton.addEventListener('click', () => {
+      const confirmed = typeof window.confirm === 'function'
+        ? window.confirm('تمام داده‌های محلی (کارگاه‌ها و انتخاب‌ها) پاک شود؟ از فایل پشتیبان مطمئن شوید.')
+        : true;
+      if (!confirmed) return;
+      localStorage.removeItem(STORAGE_KEY);
+      state.store = readStore();
+      renderWorkshopPicker();
+      renderWorkshopTable();
+      renderSettingsMeta();
+      renderDashboard();
+      if (message) message.textContent = 'داده‌های محلی پاک شد.';
+    });
+  }
+  renderSettingsMeta();
+}
+
+function renderSettingsMeta() {
+  const target = document.getElementById('settings-meta');
+  if (!target || !state.data) return;
+  const meta = state.data.meta;
+  const items = [
+    ['نسخه موتور', meta.engineVersion],
+    ['منبع داده', meta.source],
+    ['واحد پول', 'IRR (ریال ایران)'],
+    ['زمان تولید داده', new Date(meta.generatedAt).toLocaleString('fa-IR')],
+    ['کارگاه‌های ثبت‌شده', fmt(state.store.workshops.length)],
+    ['کلید ذخیره‌سازی محلی', STORAGE_KEY],
+  ];
+  target.innerHTML = items
+    .map(([label, value]) => `<li><span>${label}</span><b dir="auto">${escapeHtml(String(value))}</b></li>`)
+    .join('');
 }
 
 function initDigits() {
@@ -155,7 +779,11 @@ function initDigits() {
 function refreshFormattedViews() {
   renderSeniorityTables();
   renderGroupTable();
-  renderReference();
+  if (state.data) {
+    renderDashboard();
+    renderWorkshopTable();
+    renderSettingsMeta();
+  }
   if (state.wageResult) renderWage(state.wageResult);
   if (state.seniorityResult) calcSeniority();
   if (state.groupResult) calcGroup();
@@ -819,6 +1447,9 @@ function setElementValue(element, value) {
   } catch {
     element.setAttribute('value', value);
   }
+  if (element.tagName === 'INPUT' && element.getAttribute('value') === null) {
+    element.setAttribute('value', value);
+  }
   if (element.tagName === 'SELECT') {
     const options = [...(element.options ?? [])];
     const option = options.find((item) => item.value === value || item.getAttribute('value') === value);
@@ -1079,85 +1710,56 @@ function renderEval(result, match) {
   target.innerHTML = summary + factorTable + subTable + warnings + approvalNote;
 }
 
-/* ================================ مرجع ================================ */
-
-function initReference() {
-  $('#status-legend').innerHTML = Object.entries(STATUS_SHORT)
-    .map(
-      ([status, label]) =>
-        `<span class="legend-item"><span class="chip ${STATUS_CHIP_CLASS[status] ?? 'neutral'}">${escapeHtml(label)}</span></span>`,
-    )
-    .join('');
-  renderReference();
-}
-
-function renderReference() {
-  const formulas = state.data.formulaVersions;
-  $('#f-table').innerHTML = `
-    <thead><tr><th>کد فرمول</th><th>عنوان</th><th>نسخه</th><th>رابطه</th><th>منبع قانونی</th><th>واحد</th><th>وضعیت</th></tr></thead>
-    <tbody>
-      ${formulas
-        .map(
-          (row) => `<tr>
-            <td><code>${escapeHtml(row.code)}</code></td>
-            <td>${escapeHtml(row.name)}</td>
-            <td class="small">${escapeHtml(row.version)}</td>
-            <td class="desc"><code>${escapeHtml(row.expression)}</code></td>
-            <td class="desc">${escapeHtml(row.legalSource)}${row.circularNumber ? ` <span class="small muted">— ${escapeHtml(row.circularNumber)}</span>` : ''}</td>
-            <td class="small">${escapeHtml(row.currency)}</td>
-            <td>${chip(row.status)}</td>
-          </tr>`,
-        )
-        .join('')}
-    </tbody>`;
-
-  $('#doc-table').innerHTML = `
-    <thead><tr><th>کد</th><th>عنوان سند</th><th>مرجع</th><th>شماره / تاریخ</th><th>وضعیت</th></tr></thead>
-    <tbody>
-      ${state.data.legalDocuments
-        .map(
-          (row) => `<tr>
-            <td><code>${escapeHtml(row.code)}</code></td>
-            <td>${escapeHtml(row.title)}<div class="small muted">${escapeHtml(row.notes ?? '')}</div></td>
-            <td class="small">${escapeHtml(row.authority)}</td>
-            <td class="small">${row.circularNumber ? escapeHtml(row.circularNumber) + ' — ' : ''}${escapeHtml(row.approvalDate)}</td>
-            <td>${chip(row.status)}</td>
-          </tr>`,
-        )
-        .join('')}
-    </tbody>`;
-}
-
 /* ================================== شروع ================================== */
 
 async function boot() {
+  state.store = readStore();
   try {
     const response = await fetch('./data/mashaqel-data.json', { cache: 'no-cache' });
     if (!response.ok) throw new Error(`دریافت داده ناموفق بود (${response.status})`);
     state.data = await response.json();
   } catch (error) {
-    document.querySelector('main').innerHTML = `
-      <div class="warnings">
-        <h4>داده‌های محاسباتی بارگذاری نشد</h4>
-        <ul><li>${escapeHtml(error.message)}</li>
-          <li>برای ساخت داده‌ها دستور <code>npm run export:web</code> را اجرا کنید و پوشه <code>web</code> را سرو نمایید.</li>
-        </ul>
-      </div>`;
+    const target = document.getElementById('main-content');
+    if (target) {
+      target.innerHTML = `
+        <div class="warnings">
+          <h4>داده‌های محاسباتی بارگذاری نشد</h4>
+          <ul><li>${escapeHtml(error.message)}</li>
+            <li>برای ساخت داده‌ها دستور <code>npm run export:web</code> را اجرا کنید و پوشه <code>web</code> را سرو نمایید.</li>
+          </ul>
+        </div>`;
+    }
     return;
   }
 
-  initTabs();
+  initWageRows();
+  initRouter();
+  initSubtabs();
   initDigits();
   initWage();
   initSeniority();
   initGroup();
   initEval();
-  initReference();
+  initWorkshops();
+  initSettings();
+
+  const printButton = document.getElementById('print-btn');
+  if (printButton) {
+    printButton.addEventListener('click', () => {
+      if (typeof window.print === 'function') window.print();
+    });
+  }
+
+  const banner = document.getElementById('offline-banner');
+  if (banner) banner.hidden = false;
 
   const meta = state.data.meta;
-  $('#data-meta').textContent =
-    `داده‌ها از موتور ${meta.source} — تولید ${new Date(meta.generatedAt).toLocaleString('fa-IR')} — ` +
-    `${fmt(state.data.levels.length)} سطح امتیازی، ${fmt(state.data.formulaVersions.length)} فرمول، ${fmt(state.data.legalDocuments.length)} سند`;
+  const dataMeta = document.getElementById('data-meta');
+  if (dataMeta) {
+    dataMeta.textContent =
+      `داده‌ها از موتور ${meta.source} — نسخه ${meta.engineVersion} — تولید ${new Date(meta.generatedAt).toLocaleString('fa-IR')} — ` +
+      `${fmt(state.data.levels.length)} سطح امتیازی، ${fmt(state.data.wageTables.length)} ردیف مزد، ${fmt(state.data.seniorityTables.length)} ردیف سنوات`;
+  }
 }
 
 boot();

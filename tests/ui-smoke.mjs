@@ -24,6 +24,7 @@ const store = new Map();
 globalThis.localStorage = {
   getItem: (key) => (store.has(key) ? store.get(key) : null),
   setItem: (key, value) => store.set(key, String(value)),
+  removeItem: (key) => store.delete(key),
 };
 
 const data = JSON.parse(readFileSync(resolve(root, 'web/data/mashaqel-data.json'), 'utf8'));
@@ -60,7 +61,94 @@ const checks = [];
 const assert = (label, condition, detail = '') => checks.push({ label, ok: Boolean(condition), detail });
 const contains = (label, haystack, needle) => assert(label, haystack.includes(needle), needle);
 
-/* ------------------------------- مزد پیش‌فرض ------------------------------- */
+/* ------------------------------ پوسته و مسیریابی ------------------------------ */
+
+const navItems = [...document.querySelectorAll('.nav-item')];
+assert('منوی کناری: ۱۲ بخش', navItems.length === 12, String(navItems.length));
+assert('منوی کناری: ۶ بخش فعال', navItems.filter((item) => !item.disabled).length === 6, String(navItems.filter((item) => !item.disabled).length));
+assert(
+  'بخش «شناسنامه فرمول‌ها و اسناد قانونی» پنهان شده است',
+  document.querySelector('#view-reference') === null && !document.body.innerHTML.includes('شناسنامه فرمول') && !document.body.innerHTML.includes('بانک قوانین'),
+);
+assert('داشبورد پیش‌فرض فعال است', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
+
+click('.nav-item[data-route="group"]');
+assert('مسیریابی به گروه شغلی', document.querySelector('#view-group')?.classList.contains('is-active'));
+assert('عنوان صفحه به‌روزرسانی شد', document.querySelector('#page-title')?.textContent === 'تعیین گروه شغلی');
+
+click('.nav-item[data-route="dashboard"]');
+assert('بازگشت به داشبورد', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
+
+/* --------------------------------- داشبورد --------------------------------- */
+
+assert('داشبورد: ۴ کارت شاخص', document.querySelectorAll('#kpi-grid .kpi').length === 4);
+assert('داشبورد: نمودار مزد', document.querySelectorAll('#wage-chart svg rect.bar').length === 20, String(document.querySelectorAll('#wage-chart svg rect.bar').length));
+assert('داشبورد: نمودار سنوات', document.querySelector('#seniority-chart svg path.line-path') !== null);
+assert('داشبورد: فهرست محدودیت‌ها', document.querySelectorAll('#limitations li').length === 4);
+contains('داشبورد: مزد گروه ۱', text('#kpi-grid'), fa(core.MIN_DAILY_1405));
+
+/* -------------------------------- کارگاه‌ها -------------------------------- */
+
+click('.nav-item[data-route="workshops"]');
+assert('مسیریابی به کارگاه‌ها', document.querySelector('#view-workshops')?.classList.contains('is-active'));
+assert('جدول کارگاه‌ها خالی است', text('#workshop-table').includes('هنوز کارگاهی ثبت نشده'));
+
+const setField = (id, value) => {
+  const input = document.querySelector(`#${id}`);
+  if (input.tagName === 'SELECT') {
+    for (const option of [...(input.options ?? [])]) {
+      option.selected = option.getAttribute('value') === value;
+      if (option.selected) option.setAttribute('selected', 'selected');
+      else option.removeAttribute('selected');
+    }
+    input.dispatchEvent(new window.Event('change'));
+    return;
+  }
+  input.setAttribute('value', String(value));
+  try {
+    input.value = String(value);
+  } catch {
+    /* linkedom */
+  }
+};
+
+const submitWorkshop = (values) => {
+  for (const [id, value] of Object.entries(values)) setField(id, value);
+  document.querySelector('#workshop-form').dispatchEvent(new window.Event('submit'));
+};
+
+submitWorkshop({
+  'wf-company': 'شرکت نمونه صنعت',
+  'wf-name': 'کارگاه شماره یک',
+  'wf-code': 'WS-1001',
+  'wf-national': '10101234567',
+  'wf-employees': 120,
+  'wf-manager': 'مهندس نمونه',
+  'wf-established': '1398-04-01',
+  'wf-scheme': 'IN_PROGRESS',
+});
+await new Promise((resolve) => setTimeout(resolve, 20));
+
+assert('ثبت کارگاه: یک ردیف', document.querySelectorAll('#workshop-table tbody tr').length === 1, String(document.querySelectorAll('#workshop-table tbody tr').length));
+assert('ثبت کارگاه: نام در جدول', text('#workshop-table').includes('کارگاه شماره یک'));
+assert('انتخابگر کارگاه: ۲ گزینه', document.querySelectorAll('#active-workshop option').length === 2);
+assert('کارگاه فعال روی داشبورد', text('#kpi-grid').includes('کارگاه شماره یک'));
+assert('ذخیره‌سازی محلی کارگاه', (localStorage.getItem('mashaqel.state.v2') ?? '').includes('WS-1001'));
+
+submitWorkshop({
+  'wf-company': 'شرکت دوم',
+  'wf-name': 'کارگاه تکراری',
+  'wf-code': 'WS-1001',
+});
+assert('اعتبارسنجی: کد تکراری رد شد', text('#workshop-error').includes('قبلاً ثبت شده'), text('#workshop-error'));
+assert('اعتبارسنجی: کارگاه دوم ثبت نشد', document.querySelectorAll('#workshop-table tbody tr').length === 1);
+click('#workshop-cancel');
+
+/* -------------------------- حقوق و دستمزد و ارقام -------------------------- */
+
+click('.nav-item[data-route="payroll"]');
+assert('مسیریابی به حقوق و دستمزد', document.querySelector('#view-payroll')?.classList.contains('is-active'));
+
 const expectedWage = core.computeWage(data, {
   schemeCode: 'SERVICE_COMPANIES_NATIONWIDE',
   jobGroup: 8,
@@ -79,7 +167,6 @@ for (const field of ['dailyJobWage', 'dailyBaseWage', 'grossTotal', 'netPayable'
 }
 contains('مزد.پایه سنوات ماهانه', wageText, fa(expectedWage.monthlySeniorityWage));
 
-/* ------------------------------ تغییر گروه ------------------------------ */
 setSelect('#w-group', '20');
 click('#wage-calc');
 const prior = Number(document.querySelector('#w-prior').value);
@@ -97,20 +184,34 @@ const g20 = core.computeWage(data, {
   computationDate: '1405-03-15',
 });
 contains('گروه ۲۰ → مزد شغل روزانه', text('#wage-results'), fa(g20.dailyJobWage));
+
+click('#digits-toggle');
+assert('ارقام لاتین', text('#wage-results').includes(en(g20.dailyJobWage)), en(g20.dailyJobWage));
+click('#digits-toggle');
+assert('بازگشت به ارقام فارسی', text('#wage-results').includes(fa(g20.dailyJobWage)));
 setSelect('#w-group', '8');
 
 /* --------------------------------- سنوات --------------------------------- */
+
+click('.subtab[data-subtab="seniority"]');
+assert('زیرتب سنوات فعال شد', document.querySelector('#sub-seniority')?.classList.contains('is-active'));
 click('#s-calc');
 const seniorityText = text('#s-result');
 contains('سنوات.نرخ گروه ۸', seniorityText, fa(168_067));
 contains('سنوات.کل پایه سنوات', seniorityText, fa(Math.round(166_667 * 1.45) + 168_067));
+assert('سنوات.جدول تجمیعی', document.querySelectorAll('#s-cumulative-table tbody tr').length === 31, String(document.querySelectorAll('#s-cumulative-table tbody tr').length));
+assert('سنوات.جدول نرخ ۲۰ گروه', document.querySelectorAll('#s-rate-table tbody tr').length === 20);
 
 /* --------------------------------- گروه --------------------------------- */
+
+click('.nav-item[data-route="group"]');
 setSelect('#g-scheme', 'NATIONAL_20_GROUP_1389');
 click('#g-calc');
 contains('گروه.امتیاز ۳۲۳ → گروه ۱۲', text('#g-result'), fa(12));
 
 /* -------------------------------- ارزیابی -------------------------------- */
+
+click('.nav-item[data-route="evaluation"]');
 const welder = core.evaluatePointBased(data, {
   systemCode: 'EVAL_1389_POINT_FACTOR',
   evaluationDate: '1405-03-15',
@@ -151,24 +252,16 @@ contains('ارزیابی.گروه سرپرست ۱۶', supervisorText, fa(16));
 const safName = data.subFactors.find((row) => row.code === 'SAF_OTH').name;
 contains('ارزیابی.هشدار زیرعامل بدون جدول', supervisorText, safName);
 
-/* --------------------------------- مرجع --------------------------------- */
-assert('مرجع.۲۶ فرمول', document.querySelectorAll('#f-table tbody tr').length === 26);
-assert('مرجع.۱۲ سند', document.querySelectorAll('#doc-table tbody tr').length === 12);
-assert(
-  'مرجع.چهار وضعیت اعتبار',
-  document.querySelectorAll('#status-legend .chip').length === 4,
-  String(document.querySelectorAll('#status-legend .chip').length),
-);
+/* -------------------------------- تنظیمات -------------------------------- */
 
-/* ------------------------------ تب و ارقام ------------------------------ */
-click('.tab[data-tab="eval"]');
-assert('تب ارزیابی فعال شد', document.querySelector('#panel-eval').classList.contains('is-active'));
-click('#digits-toggle');
-assert('ارقام لاتین', text('#wage-results').includes(en(g20.dailyJobWage)), en(g20.dailyJobWage));
-click('#digits-toggle');
-assert('بازگشت به ارقام فارسی', text('#wage-results').includes(fa(g20.dailyJobWage)));
+click('.nav-item[data-route="settings"]');
+assert('مسیریابی به تنظیمات', document.querySelector('#view-settings')?.classList.contains('is-active'));
+contains('تنظیمات: نسخه موتور', text('#settings-meta'), data.meta.engineVersion);
+contains('تنظیمات: کلید ذخیره‌سازی', text('#settings-meta'), 'mashaqel.state.v2');
+contains('تنظیمات: مشخصات داده', text('#data-meta'), fa(data.levels.length));
 
 /* --------------------------------- نتیجه --------------------------------- */
+
 const failed = checks.filter((check) => !check.ok);
 for (const check of checks) console.log(`${check.ok ? '✓' : '✗'} ${check.label}${check.ok ? '' : ` → ${check.detail}`}`);
 console.log(`\n${checks.length - failed.length}/${checks.length} بررسی رابط کاربری موفق.`);
