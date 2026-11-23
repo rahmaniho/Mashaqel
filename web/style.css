@@ -1863,6 +1863,24 @@ body.is-auth .toast {
   flex: 0 0 auto;
 }
 
+.guide-figure {
+  margin: 12px 0 4px;
+}
+
+.guide-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+}
+
+.guide-figure figcaption {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
 .guide-heading {
   margin: 12px 0 6px;
   font-size: 12.5px;
@@ -2083,6 +2101,16 @@ body.is-auth .toast {
   .guide-steps,
   .guide-list {
     font-size: 10px;
+  }
+
+  .guide-figure {
+    break-inside: avoid;
+    margin: 6px 0 2px;
+    max-width: 150mm;
+  }
+
+  .guide-figure figcaption {
+    font-size: 9px;
   }
 
   .topbar {
