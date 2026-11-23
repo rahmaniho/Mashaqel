@@ -1267,66 +1267,6 @@ input[dir='ltr'],
 
 /* ---------------------------------- چاپ ---------------------------------- */
 
-@media print {
-  @page {
-    size: A4;
-    margin: 12mm;
-  }
-  body {
-    background: #fff;
-    font-size: 11px;
-  }
-  .sidebar,
-  .topbar-actions,
-  .offline-banner,
-  .menu-toggle,
-  .subtabs,
-  .head-actions,
-  .toast,
-  .app-footer,
-  .add-row-btn,
-  .icon-btn,
-  .form-card,
-  form#workshop-form,
-  #workshop-new,
-  .field,
-  select,
-  input,
-  button {
-    display: none !important;
-  }
-  .app-shell {
-    display: block;
-  }
-  .content {
-    padding: 0;
-  }
-  .card,
-  .kpi,
-  .summary-card {
-    box-shadow: none;
-    border: 1px solid #ccc;
-    break-inside: avoid;
-  }
-  .table-wrap {
-    max-height: none;
-    overflow: visible;
-    border: 0;
-  }
-  .data-table thead th {
-    background: #eee !important;
-    color: #000 !important;
-  }
-  .view:not(.is-active) {
-    display: none !important;
-  }
-  .topbar {
-    position: static;
-    box-shadow: none;
-    border-bottom: 2px solid var(--navy-800);
-  }
-}
-
 
 /* ======================= بانک مشاغل و شناسنامه شغل (فاز ۳) ======================= */
 
@@ -1854,42 +1794,192 @@ body.is-auth .toast {
   margin-top: 10px;
 }
 
+/* ============================ چاپ و PDF (بازبینی فاز ۱۴) ============================ */
+
 @media print {
-  .no-print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    font-size: 11px;
+  }
+
+  .sidebar,
+  .topbar-actions,
+  .offline-banner,
+  .menu-toggle,
+  .subtabs,
+  .head-actions,
+  .toast,
+  .app-footer,
+  .add-row-btn,
+  .icon-btn,
+  .form-card,
+  form#workshop-form,
+  #workshop-new,
+  .field,
+  .toolbar,
+  .field-grid,
+  select,
+  input,
+  button,
+  .no-print,
+  .auth-gate,
+  .sso-row,
+  #pr-detail-card,
+  #ar-detail-card {
     display: none !important;
   }
-  #rp-sheet.report-sheet {
-    display: block !important;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    box-shadow: none;
+
+  body.is-auth .app-shell {
+    display: none !important;
   }
-  .report-letterhead {
+
+  .app-shell {
+    display: block !important;
+  }
+
+  .content {
+    padding: 0 !important;
+  }
+
+  .view:not(.is-active) {
+    display: none !important;
+  }
+
+  .card,
+  .kpi,
+  .summary-card,
+  .report-sheet,
+  .profile {
+    box-shadow: none !important;
     break-inside: avoid;
   }
+
+  .card {
+    border: 1px solid #ccc;
+    margin: 0 0 8px;
+  }
+
+  .table-wrap,
+  .table-wrap.tall,
+  .table-wrap.wide {
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+  }
+
+  table {
+    width: 100% !important;
+    table-layout: auto;
+  }
+
+  .data-table,
+  .report-table,
+  .profile-table,
+  .eval-table {
+    font-size: 9.5px !important;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  tr,
+  .kpi,
+  .summary-card,
+  h1,
+  h2,
+  h3 {
+    break-inside: avoid;
+    break-after: avoid-page;
+  }
+
+  .data-table thead th,
+  .report-table thead th,
+  .profile-table th {
+    background: #eee !important;
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .report-letterhead {
+    break-inside: avoid;
+    break-after: avoid;
+  }
+
   .report-table {
     break-inside: auto;
   }
+
   .report-table tr {
     break-inside: avoid;
   }
-  .profile {
-    border: 0;
-    box-shadow: none;
+
+  #rp-sheet.report-sheet:not([hidden]) {
+    display: block !important;
+    margin: 0;
     padding: 0;
+    border: 0 !important;
+    box-shadow: none !important;
   }
+
+  #rp-sheet.report-sheet[hidden] {
+    display: none !important;
+  }
+
+  .profile {
+    border: 0 !important;
+    padding: 0 !important;
+  }
+
+  .profile-section {
+    break-inside: avoid;
+  }
+
   .profile-table th {
     background: #f0f0f0 !important;
     border: 1px solid #ccc;
   }
+
   .profile-table td {
     border: 1px solid #ccc;
   }
-  .profile-section {
-    page-break-inside: avoid;
-  }
+
   .profile-header h2 {
     font-size: 17px;
+  }
+
+  .topbar {
+    position: static;
+    box-shadow: none;
+    border-bottom: 2px solid var(--navy-800);
+  }
+
+  .chart,
+  .chart svg {
+    max-width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  a {
+    color: inherit !important;
+    text-decoration: none;
+  }
+
+  /* جدول‌های پهن در حالت افقی چاپ می‌شوند (کلاس با JS تنظیم می‌شود) */
+  body.print-landscape .report-sheet,
+  body.print-landscape .profile {
+    max-width: 100% !important;
   }
 }
