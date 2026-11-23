@@ -118,6 +118,16 @@ const setField = (id, value) => {
   }
 };
 
+const setTextArea = (id, value) => {
+  const element = document.querySelector(`#${id}`);
+  element.textContent = String(value);
+  try {
+    element.value = String(value);
+  } catch {
+    /* linkedom */
+  }
+};
+
 const setInput = (id, value) => {
   const input = document.querySelector(`#${id}`);
   input.setAttribute('value', String(value));
@@ -262,6 +272,104 @@ setInput('jobs-search', '');
 
 click('#jobs-table button[data-action="delete"]');
 assert('حذف شغل', document.querySelectorAll('#jobs-table tbody tr').length === 1, String(document.querySelectorAll('#jobs-table tbody tr').length));
+
+
+/* ------------------- فاز ۵: تأیید کارشناسی و گروه نهایی ------------------- */
+
+click('.nav-item[data-route="jobs"]');
+click('#job-new');
+submitJob({
+  'jf-code': 'J-2001',
+  'jf-title': 'کارشناس ایمنی و بهداشت',
+  'jf-unit': 'HSE',
+  'jf-objective': 'حفاظت نیروی انسانی و پیشگیری از حوادث',
+  'jf-duties': 'بازرسی روزانه کارگاه\nتدوین دستورالعمل ایمنی',
+  'jf-education': 'کارشناسی',
+});
+await new Promise((resolve) => setTimeout(resolve, 20));
+
+const targetJob = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs.find((job) => job.jobCode === 'J-2001');
+assert('فاز ۵: شغل هدف ساخته شد', Boolean(targetJob), 'J-2001');
+
+click('.nav-item[data-route="evaluation"]');
+setField('e-job', targetJob.id);
+click('#e-calc');
+click('#eval-save');
+const evaluatedTarget = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs.find((job) => job.jobCode === 'J-2001');
+assert('فاز ۵: ارزیابی شغل هدف ثبت شد', evaluatedTarget?.evaluation?.totalScore === 323, String(evaluatedTarget?.evaluation?.totalScore));
+
+const openJobProfileRow = (code) => {
+  const row = [...document.querySelectorAll('#jobs-table tbody tr')].find((item) => item.textContent.includes(code));
+  row?.querySelector('button[data-action="profile"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+};
+
+click('.nav-item[data-route="jobs"]');
+openJobProfileRow('J-2001');
+const approvalText = text('#job-profile-body');
+contains('تأیید: وضعیت اولیه در انتظار', approvalText, 'در انتظار تأیید کمیته');
+assert('تأیید: فرم ثبت وجود دارد', document.querySelector('#approval-save') !== null);
+
+setField('approval-status', 'COMMITTEE_APPROVED');
+click('#approval-save');
+assert('تأیید: الزام نام کارشناس', text('#approval-msg').includes('نام کارشناس'), text('#approval-msg'));
+
+setField('approval-expert', 'کارشناس نمونه');
+setField('approval-ref', '1405-COMM-12');
+click('#approval-save');
+assert('تأیید: الزام گروه نهایی', text('#approval-msg').includes('گروه نهایی'), text('#approval-msg'));
+
+setField('approval-final-group', '13');
+click('#approval-save');
+assert('تأیید: الزام دلیل تغییر گروه', text('#approval-msg').includes('دلیل تغییر'), text('#approval-msg'));
+
+setTextArea('approval-reason', 'پیچیدگی وظایف و شرایط احراز بالاتر از پیشنهاد');
+click('#approval-save');
+assert('تأیید: پیام موفقیت', text('#approval-msg').includes('ثبت شد'), text('#approval-msg'));
+
+const approvedJob = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs.find((job) => job.jobCode === 'J-2001');
+assert('تأیید: وضعیت کمیته', approvedJob?.evaluation?.approval?.status === 'COMMITTEE_APPROVED', String(approvedJob?.evaluation?.approval?.status));
+assert('تأیید: گروه نهایی ۱۳', approvedJob?.evaluation?.approval?.finalGroup === 13, String(approvedJob?.evaluation?.approval?.finalGroup));
+assert('تأیید: نام کارشناس ذخیره شد', approvedJob?.evaluation?.approval?.expertName === 'کارشناس نمونه', String(approvedJob?.evaluation?.approval?.expertName));
+assert('تأیید: شماره صورت‌جلسه ذخیره شد', approvedJob?.evaluation?.approval?.committeeRef === '1405-COMM-12', String(approvedJob?.evaluation?.approval?.committeeRef));
+assert('تأیید: تاریخچه تصمیم‌ها', (approvedJob?.evaluation?.approval?.history ?? []).length >= 2, String(approvedJob?.evaluation?.approval?.history?.length));
+
+const profileAfterApproval = text('#job-profile-body');
+contains('شناسنامه: وضعیت تأییدشده', profileAfterApproval, 'تأیید کمیته');
+contains('شناسنامه: گروه نهایی', profileAfterApproval, 'گروه نهایی مصوب');
+contains('شناسنامه: اختلاف گروه', profileAfterApproval, '+۱');
+contains('شناسنامه: دلیل تغییر', profileAfterApproval, 'شرایط احراز بالاتر');
+
+click('#profile-back');
+const approvedRow = [...document.querySelectorAll('#jobs-table tbody tr')].find((item) => item.textContent.includes('J-2001'));
+const approvedRowText = approvedRow?.textContent?.replace(/\s+/g, ' ') ?? '';
+assert('جدول مشاغل: گروه نهایی', approvedRowText.includes(fa(13)), approvedRowText);
+assert('جدول مشاغل: وضعیت تأیید', approvedRowText.includes('تأیید کمیته'), approvedRowText);
+
+click('.nav-item[data-route="group"]');
+const compareText = text('#group-jobs-table');
+contains('مقایسه گروه: ردیف شغل', compareText, 'J-2001');
+contains('مقایسه گروه: گروه نهایی', compareText, fa(13));
+contains('مقایسه گروه: کارشناس', compareText, 'کارشناس نمونه');
+assert('مقایسه گروه: تعداد', text('#group-jobs-note').includes('۱ شغل'), text('#group-jobs-note'));
+
+click('.nav-item[data-route="jobs"]');
+openJobProfileRow('J-2001');
+click('#approval-reopen');
+const reopened = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs.find((job) => job.jobCode === 'J-2001');
+assert('بازگشت به در انتظار تأیید', reopened?.evaluation?.approval?.status === 'PENDING_COMMITTEE_APPROVAL', String(reopened?.evaluation?.approval?.status));
+assert('بازگشت: گروه نهایی پاک شد', reopened?.evaluation?.approval?.finalGroup === null, String(reopened?.evaluation?.approval?.finalGroup));
+
+setField('approval-status', 'REJECTED');
+setField('approval-expert', 'کارشناس نمونه');
+click('#approval-save');
+assert('رد: الزام دلیل', text('#approval-msg').includes('دلیل رد'), text('#approval-msg'));
+setTextArea('approval-reason', 'مغایرت شرح وظایف با شرح مصوب کارگاه');
+click('#approval-save');
+const rejected = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs.find((job) => job.jobCode === 'J-2001');
+assert('رد: وضعیت ثبت شد', rejected?.evaluation?.approval?.status === 'REJECTED', String(rejected?.evaluation?.approval?.status));
+assert('رد: گروه نهایی خالی', rejected?.evaluation?.approval?.finalGroup === null, String(rejected?.evaluation?.approval?.finalGroup));
+contains('شناسنامه: نمایش رد', text('#job-profile-body'), 'رد شده');
+click('#profile-back');
 
 /* -------------------------- حقوق و دستمزد و ارقام -------------------------- */
 

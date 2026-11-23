@@ -162,6 +162,7 @@ function writeStore(patch) {
     renderDashboard();
     renderJobsView();
     renderEvalJobOptions();
+    renderGroupJobsComparison();
     renderSettingsMeta();
   }
 }
@@ -259,6 +260,7 @@ function navigate(route, options = {}) {
   if (target === 'dashboard') renderDashboard();
   if (target === 'jobs') renderJobsView();
   if (target === 'evaluation') renderEvalJobOptions();
+  if (target === 'group') renderGroupJobsComparison();
 }
 
 function currentHashRoute() {
@@ -1181,6 +1183,7 @@ function initGroup() {
   $('#g-calc').addEventListener('click', () => calcGroup());
   renderGroupTable();
   calcGroup();
+  renderGroupJobsComparison();
 }
 
 function calcGroup() {
@@ -1255,6 +1258,46 @@ function highlightGroupRow(group) {
 /* ================================ بانک مشاغل ================================ */
 
 const JOB_STATUS_LABELS = { ACTIVE: 'فعال', VACANT: 'بلاتصدی', ARCHIVED: 'بایگانی' };
+const APPROVAL_STATUS_LABELS = {
+  PENDING_COMMITTEE_APPROVAL: 'در انتظار تأیید کمیته',
+  COMMITTEE_APPROVED: 'تأیید کمیته',
+  MINISTRY_APPROVED: 'تأیید اداره کل روابط کار',
+  REJECTED: 'رد شده',
+};
+const APPROVAL_CHIP_CLASS = {
+  PENDING_COMMITTEE_APPROVAL: 'st-2',
+  COMMITTEE_APPROVED: 'st-1',
+  MINISTRY_APPROVED: 'st-1',
+  REJECTED: 'st-3',
+};
+
+function normalizeApproval(evaluation) {
+  if (!evaluation) return null;
+  const approval = evaluation.approval ?? {};
+  return {
+    status: APPROVAL_STATUS_LABELS[approval.status] ? approval.status : 'PENDING_COMMITTEE_APPROVAL',
+    finalGroup: approval.finalGroup ?? null,
+    expertName: approval.expertName ?? null,
+    committeeRef: approval.committeeRef ?? null,
+    decisionDate: approval.decisionDate ?? null,
+    changeReason: approval.changeReason ?? null,
+    approvedAt: approval.approvedAt ?? null,
+    history: Array.isArray(approval.history) ? approval.history : [],
+  };
+}
+
+function todayJalali() {
+  try {
+    const parts = new Intl.DateTimeFormat('fa-IR-u-ca-persian', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    return parts.replace(/\//g, '/');
+  } catch {
+    return '1405-03-15';
+  }
+}
 const jobsFilter = { search: '', unit: '', group: '' };
 let profileJobId = null;
 
@@ -1419,7 +1462,7 @@ function renderJobsTable() {
     <thead>
       <tr>
         <th>کد شغل</th><th>عنوان شغل</th><th>واحد سازمانی</th><th>سرپرست</th>
-        <th>تعداد نیرو</th><th>امتیاز</th><th>گروه پیشنهادی</th><th>وضعیت</th><th>عملیات</th>
+        <th>تعداد نیرو</th><th>امتیاز</th><th>گروه پیشنهادی</th><th>گروه نهایی</th><th>وضعیت تأیید</th><th>عملیات</th>
       </tr>
     </thead>
     <tbody>
@@ -1436,8 +1479,13 @@ function renderJobsTable() {
             <td class="num">${escapeHtml(job.supervisorJobCode || '—')}</td>
             <td class="num">${fmt(job.headcount)}</td>
             <td class="num">${evaluation ? fmt(evaluation.totalScore, 1) : '—'}</td>
-            <td class="num">${evaluation && evaluation.proposedGroup ? fmt(evaluation.proposedGroup) : '—'}</td>
-            <td>${JOB_STATUS_LABELS[job.status] ?? job.status}</td>
+            <td class="num">${evaluation?.proposedGroup ? fmt(evaluation.proposedGroup) : '—'}</td>
+            <td class="num">${normalizeApproval(evaluation)?.finalGroup ? fmt(normalizeApproval(evaluation).finalGroup) : '—'}</td>
+            <td>${
+              evaluation
+                ? `<span class="chip ${APPROVAL_CHIP_CLASS[normalizeApproval(evaluation).status] ?? 'neutral'}">${escapeHtml(APPROVAL_STATUS_LABELS[normalizeApproval(evaluation).status] ?? '')}</span>`
+                : '<span class="chip neutral">بدون ارزیابی</span>'
+            }</td>
             <td class="actions-cell">
               <button type="button" class="icon-btn" data-action="profile" data-id="${escapeHtml(job.id)}" title="شناسنامه شغل">▤</button>
               <button type="button" class="icon-btn" data-action="edit" data-id="${escapeHtml(job.id)}" title="ویرایش">✎</button>
@@ -1685,24 +1733,105 @@ function renderJobProfile(job) {
       </table>`
     : '<p class="muted">ریز امتیاز عوامل پس از ارزیابی ثبت می‌شود.</p>';
 
-  const groupContent = `
-    <p>
-      گروه پیشنهادی: <strong>${evaluation?.proposedGroup ? fmt(evaluation.proposedGroup) : '— تعیین نشده'}</strong>
-      ${evaluation?.proposedGroup ? ` (بازه ${fmt(evaluation.rangeMin ?? 0)}–${fmt(evaluation.rangeMax ?? 0)} امتیاز)` : ''}
-    </p>
-    <div class="ok-note">
-      گروه پیشنهادی قطعی نیست. گروه نهایی تنها پس از بررسی کارشناس طبقه‌بندی مشاغل و تأیید کمیته و مرجع مسئول ثبت می‌شود.
-    </div>`;
+  const approval = normalizeApproval(evaluation);
+  const finalGroup = approval?.finalGroup ?? null;
+  const groupDelta = finalGroup && evaluation?.proposedGroup ? finalGroup - evaluation.proposedGroup : 0;
 
-  const approvalContent = `
+  const groupContent = `
     <table class="data-table profile-table">
       <tbody>
-        <tr><th>وضعیت تأیید</th><td>در انتظار بررسی کارشناس و کمیته طبقه‌بندی مشاغل</td></tr>
-        <tr><th>نام کارشناس</th><td class="muted">— تکمیل در فاز ۵ (ثبت نظر کارشناس) —</td></tr>
-        <tr><th>شماره صورت‌جلسه کمیته</th><td class="muted">— تکمیل در فاز ۵ —</td></tr>
-        <tr><th>تاریخ تأیید</th><td class="muted">—</td></tr>
+        <tr>
+          <th>گروه پیشنهادی</th>
+          <td class="num">${evaluation?.proposedGroup ? fmt(evaluation.proposedGroup) : '— تعیین نشده'}</td>
+          <th>گروه نهایی مصوب</th>
+          <td class="num">${finalGroup ? fmt(finalGroup) : '— تأیید نشده'}</td>
+        </tr>
+        <tr>
+          <th>بازه امتیاز</th>
+          <td class="num">${evaluation?.rangeMin !== null && evaluation?.rangeMin !== undefined ? `${fmt(evaluation.rangeMin)}–${fmt(evaluation.rangeMax)}` : '—'}</td>
+          <th>اختلاف با پیشنهاد</th>
+          <td class="num">${finalGroup ? `${groupDelta > 0 ? '+' : ''}${fmt(groupDelta)} گروه` : '—'}</td>
+        </tr>
+        <tr>
+          <th>دلیل تغییر گروه</th>
+          <td colspan="3">${escapeHtml(approval?.changeReason || '—')}</td>
+        </tr>
       </tbody>
-    </table>`;
+    </table>
+    <div class="ok-note">
+      گروه پیشنهادی قطعی نیست؛ گروه نهایی تنها پس از بررسی کارشناس طبقه‌بندی مشاغل و تأیید کمیته و مرجع مسئول ثبت می‌شود.
+    </div>`;
+
+  const approvalHistory = (approval?.history ?? [])
+    .slice()
+    .reverse()
+    .slice(0, 8)
+    .map(
+      (entry) => `<tr>
+        <td class="small">${escapeHtml(localizeDigits(entry.decisionDate || (entry.at ? new Date(entry.at).toLocaleDateString('fa-IR') : '—')))}</td>
+        <td class="small">${escapeHtml(APPROVAL_STATUS_LABELS[entry.status] ?? entry.status ?? '—')}</td>
+        <td class="num">${entry.finalGroup ? fmt(entry.finalGroup) : '—'}</td>
+        <td class="small">${escapeHtml(entry.expertName || '—')}</td>
+        <td class="small">${escapeHtml(entry.committeeRef || '—')}</td>
+        <td class="desc">${escapeHtml(entry.changeReason || '—')}</td>
+      </tr>`,
+    )
+    .join('');
+
+  const approvalContent = evaluation
+    ? `<table class="data-table profile-table">
+        <tbody>
+          <tr><th>وضعیت تأیید</th><td><span class="chip ${APPROVAL_CHIP_CLASS[approval.status] ?? 'neutral'}">${escapeHtml(APPROVAL_STATUS_LABELS[approval.status] ?? approval.status)}</span></td></tr>
+          <tr><th>نام کارشناس</th><td>${escapeHtml(approval.expertName || '— ثبت نشده —')}</td></tr>
+          <tr><th>شماره صورت‌جلسه کمیته</th><td>${escapeHtml(approval.committeeRef || '— ثبت نشده —')}</td></tr>
+          <tr><th>تاریخ تصمیم</th><td>${escapeHtml(localizeDigits(approval.decisionDate || '—'))}</td></tr>
+        </tbody>
+      </table>
+      ${
+        (approval.history ?? []).length > 0
+          ? `<h4>تاریخچه تصمیم‌ها</h4>
+             <div class="table-wrap" style="max-height:220px">
+               <table class="data-table">
+                 <thead><tr><th>تاریخ</th><th>وضعیت</th><th>گروه نهایی</th><th>کارشناس</th><th>صورت‌جلسه</th><th>دلیل / یادداشت</th></tr></thead>
+                 <tbody>${approvalHistory}</tbody>
+               </table>
+             </div>`
+          : ''
+      }
+      <div class="card no-print approval-form">
+        <h4>ثبت نظر کارشناس / کمیته</h4>
+        <div class="form-grid">
+          <label class="field">
+            <span>تصمیم</span>
+            <select id="approval-status">
+              <option value="PENDING_COMMITTEE_APPROVAL">در انتظار تأیید کمیته</option>
+              <option value="COMMITTEE_APPROVED">تأیید کمیته طبقه‌بندی مشاغل</option>
+              <option value="MINISTRY_APPROVED">تأیید اداره کل روابط کار</option>
+              <option value="REJECTED">رد پیشنهاد</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>گروه نهایی</span>
+            <select id="approval-final-group">
+              <option value="">— تعیین نشده —</option>
+              ${Array.from({ length: 20 }, (_, index) => {
+                const group = index + 1;
+                return `<option value="${group}">گروه ${fmt(group)}</option>`;
+              }).join('')}
+            </select>
+          </label>
+          <label class="field"><span>نام کارشناس *</span><input id="approval-expert" placeholder="نام و نام خانوادگی" /></label>
+          <label class="field"><span>شماره صورت‌جلسه کمیته *</span><input id="approval-ref" dir="ltr" placeholder="مثلاً 1405/COMM-12" /></label>
+          <label class="field"><span>تاریخ تصمیم</span><input id="approval-date" dir="ltr" value="${escapeHtml(todayJalali())}" /></label>
+          <label class="field field-wide"><span>دلیل تغییر گروه / یادداشت کارشناس</span><textarea id="approval-reason" rows="2" placeholder="در صورت تغییر گروه نسبت به پیشنهاد، دلیل الزامی است"></textarea></label>
+          <div class="form-actions field-wide">
+            <button class="primary-btn" type="button" id="approval-save">ثبت تصمیم</button>
+            <button class="ghost-btn" type="button" id="approval-reopen">بازگشت به «در انتظار تأیید»</button>
+            <span class="form-error" id="approval-msg" role="status"></span>
+          </div>
+        </div>
+      </div>`
+    : '<div class="empty-state">برای این شغل ارزیابی امتیازی ثبت نشده است؛ تأیید کارشناسی پس از ارزیابی و تعیین گروه پیشنهادی ممکن است.</div>';
 
   target.innerHTML = `
     <article class="profile" id="job-profile-print">
@@ -1734,6 +1863,185 @@ function renderJobProfile(job) {
         این شناسنامه خروجی سامانه است و جایگزین صورت‌جلسه کمیته طبقه‌بندی مشاغل و حکم کارگزینی نیست.
       </footer>
     </article>`;
+
+  const approvalSelect = document.getElementById('approval-status');
+  if (approvalSelect && approval) {
+    setElementValue(approvalSelect, approval.status);
+    setElementValue(document.getElementById('approval-final-group'), approval.finalGroup ?? '');
+    setElementValue(document.getElementById('approval-expert'), approval.expertName ?? '');
+    setElementValue(document.getElementById('approval-ref'), approval.committeeRef ?? '');
+    if (approval.changeReason) setElementValue(document.getElementById('approval-reason'), approval.changeReason);
+    if (approval.decisionDate) setElementValue(document.getElementById('approval-date'), approval.decisionDate);
+  }
+  const approvalSave = document.getElementById('approval-save');
+  if (approvalSave) approvalSave.addEventListener('click', () => saveApproval(job.id));
+  const approvalReopen = document.getElementById('approval-reopen');
+  if (approvalReopen) approvalReopen.addEventListener('click', () => reopenApproval(job.id));
+}
+
+function saveApproval(jobId) {
+  const job = jobById(jobId);
+  const message = document.getElementById('approval-msg');
+  if (!job?.evaluation) {
+    if (message) message.textContent = 'این شغل ارزیابی ثبت‌شده ندارد.';
+    return;
+  }
+  const status = selectValue(document.getElementById('approval-status'), 'PENDING_COMMITTEE_APPROVAL');
+  const finalGroupRaw = selectValue(document.getElementById('approval-final-group'), '');
+  const finalGroup = finalGroupRaw ? Number(finalGroupRaw) : null;
+  const expertName = document.getElementById('approval-expert').value.trim();
+  const committeeRef = document.getElementById('approval-ref').value.trim();
+  const decisionDate = document.getElementById('approval-date').value.trim() || todayJalali();
+  const changeReason = document.getElementById('approval-reason').value.trim();
+  const proposed = job.evaluation.proposedGroup ?? null;
+
+  const problems = [];
+  const approve = status === 'COMMITTEE_APPROVED' || status === 'MINISTRY_APPROVED';
+  if (approve) {
+    if (!expertName) problems.push('نام کارشناس الزامی است.');
+    if (!committeeRef) problems.push('شماره صورت‌جلسه کمیته الزامی است.');
+    if (!finalGroup) problems.push('برای تأیید، تعیین گروه نهایی الزامی است.');
+    if (finalGroup && proposed && finalGroup !== proposed && !changeReason) {
+      problems.push('گروه نهایی با پیشنهاد متفاوت است؛ ثبت دلیل تغییر گروه الزامی است.');
+    }
+  }
+  if (status === 'REJECTED') {
+    if (!expertName) problems.push('نام کارشناس الزامی است.');
+    if (!changeReason) problems.push('دلیل رد پیشنهاد الزامی است.');
+  }
+  if (problems.length > 0) {
+    if (message) message.textContent = problems.join(' ');
+    return;
+  }
+
+  const previous = normalizeApproval(job.evaluation);
+  const history = [
+    ...(previous.history ?? []),
+    {
+      at: new Date().toISOString(),
+      decisionDate,
+      status,
+      finalGroup: status === 'REJECTED' || status === 'PENDING_COMMITTEE_APPROVAL' ? null : finalGroup,
+      expertName: expertName || null,
+      committeeRef: committeeRef || null,
+      changeReason: changeReason || null,
+    },
+  ].slice(-30);
+
+  const approval = {
+    status,
+    finalGroup: status === 'REJECTED' || status === 'PENDING_COMMITTEE_APPROVAL' ? null : finalGroup,
+    expertName: expertName || null,
+    committeeRef: committeeRef || null,
+    decisionDate: status === 'PENDING_COMMITTEE_APPROVAL' ? null : decisionDate,
+    changeReason: changeReason || null,
+    approvedAt: approve ? new Date().toISOString() : null,
+    history,
+  };
+
+  const jobs = state.store.jobs.map((row) =>
+    row.id === job.id
+      ? { ...row, evaluation: { ...row.evaluation, approval }, updatedAt: new Date().toISOString() }
+      : row,
+  );
+  writeStore({ ...state.store, jobs });
+  renderJobProfile(jobById(job.id));
+  renderJobsTable();
+  renderGroupJobsComparison();
+  const freshMessage = document.getElementById('approval-msg');
+  if (freshMessage) {
+    freshMessage.textContent = approve
+      ? `تصمیم تأیید ثبت شد: گروه نهایی ${finalGroup ? fmt(finalGroup) : '—'} — ${APPROVAL_STATUS_LABELS[status] ?? status}`
+      : `تصمیم ثبت شد: ${APPROVAL_STATUS_LABELS[status] ?? status}`;
+  }
+  showToast(approve ? 'تصمیم تأیید گروه ثبت شد' : 'تصمیم کارشناسی ثبت شد');
+}
+
+function reopenApproval(jobId) {
+  const job = jobById(jobId);
+  if (!job?.evaluation) return;
+  const confirmed = typeof window.confirm === 'function'
+    ? window.confirm('تأیید فعلی لغو و پرونده به وضعیت «در انتظار تأیید کمیته» برگردد؟ سابقه در تاریخچه می‌ماند.')
+    : true;
+  if (!confirmed) return;
+  const previous = normalizeApproval(job.evaluation);
+  const history = [
+    ...(previous.history ?? []),
+    {
+      at: new Date().toISOString(),
+      decisionDate: todayJalali(),
+      status: 'PENDING_COMMITTEE_APPROVAL',
+      finalGroup: null,
+      expertName: null,
+      committeeRef: null,
+      changeReason: 'لغو تأیید پیشین و بازگشت به وضعیت بررسی',
+    },
+  ].slice(-30);
+  const jobs = state.store.jobs.map((row) =>
+    row.id === job.id
+      ? {
+          ...row,
+          evaluation: {
+            ...row.evaluation,
+            approval: {
+              status: 'PENDING_COMMITTEE_APPROVAL',
+              finalGroup: null,
+              expertName: null,
+              committeeRef: null,
+              decisionDate: null,
+              changeReason: null,
+              approvedAt: null,
+              history,
+            },
+          },
+          updatedAt: new Date().toISOString(),
+        }
+      : row,
+  );
+  writeStore({ ...state.store, jobs });
+  renderJobProfile(jobById(job.id));
+  renderJobsTable();
+  renderGroupJobsComparison();
+  showToast('پرونده به وضعیت «در انتظار تأیید» بازگشت');
+}
+
+function renderGroupJobsComparison() {
+  const table = document.getElementById('group-jobs-table');
+  if (!table) return;
+  const jobs = workshopJobs().filter((job) => job.evaluation);
+  const note = document.getElementById('group-jobs-note');
+  if (note) note.textContent = `${fmt(jobs.length)} شغل ارزیابی‌شده`;
+  if (jobs.length === 0) {
+    table.innerHTML = `<tbody><tr><td><div class="empty-state">هنوز شغلی در بانک مشاغل این کارگاه ارزیابی نشده است.</div></td></tr></tbody>`;
+    return;
+  }
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>کد شغل</th><th>عنوان</th><th>امتیاز کل</th><th>گروه پیشنهادی</th>
+        <th>گروه نهایی</th><th>اختلاف</th><th>وضعیت تأیید</th><th>کارشناس / صورت‌جلسه</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${jobs
+        .map((job) => {
+          const approval = normalizeApproval(job.evaluation);
+          const proposed = job.evaluation.proposedGroup ?? null;
+          const final = approval?.finalGroup ?? null;
+          const delta = final && proposed ? final - proposed : null;
+          return `<tr>
+            <td class="num">${escapeHtml(job.jobCode)}</td>
+            <td>${escapeHtml(job.title)}</td>
+            <td class="num">${fmt(job.evaluation.totalScore, 1)}</td>
+            <td class="num">${proposed ? fmt(proposed) : '—'}</td>
+            <td class="num">${final ? `<strong>${fmt(final)}</strong>` : '—'}</td>
+            <td class="num">${delta === null ? '—' : `${delta > 0 ? '+' : ''}${fmt(delta)}`}</td>
+            <td><span class="chip ${APPROVAL_CHIP_CLASS[approval.status] ?? 'neutral'}">${escapeHtml(APPROVAL_STATUS_LABELS[approval.status] ?? '')}</span></td>
+            <td class="small">${escapeHtml(approval.expertName || '—')}${approval.committeeRef ? ` / ${escapeHtml(approval.committeeRef)}` : ''}</td>
+          </tr>`;
+        })
+        .join('')}
+    </tbody>`;
 }
 
 /* ================================ ارزیابی ================================ */
@@ -2277,6 +2585,7 @@ function saveEvaluationToJob(result, match) {
     if (message) message.textContent = 'شغل مرتبط انتخاب نشده است.';
     return;
   }
+  const previousApproval = normalizeApproval(job.evaluation);
   const evaluation = {
     totalScore: result.totalScore,
     proposedGroup: match.group ?? null,
@@ -2302,6 +2611,27 @@ function saveEvaluationToJob(result, match) {
       validityStatus: sub.validityStatus,
       selectionDescription: sub.selectionDescription,
     })),
+    approval: {
+      status: 'PENDING_COMMITTEE_APPROVAL',
+      finalGroup: null,
+      expertName: null,
+      committeeRef: null,
+      decisionDate: null,
+      changeReason: null,
+      approvedAt: null,
+      history: [
+        ...(previousApproval?.history ?? []),
+        {
+          at: new Date().toISOString(),
+          decisionDate: document.getElementById('e-date').value || '1405-03-15',
+          status: 'PENDING_COMMITTEE_APPROVAL',
+          finalGroup: null,
+          expertName: null,
+          committeeRef: null,
+          changeReason: 'ثبت/به‌روزرسانی ارزیابی امتیازی',
+        },
+      ].slice(-30),
+    },
   };
   const jobs = state.store.jobs.map((row) =>
     row.id === job.id ? { ...row, evaluation, updatedAt: new Date().toISOString() } : row,
