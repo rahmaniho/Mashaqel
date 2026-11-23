@@ -139,6 +139,7 @@ assert(
 );
 /* ------------------------ فاز ۱۰: راه‌اندازی امنیتی ------------------------ */
 
+assert('SSO: دکمه ورود سازمانی در حالت محلی پنهان است', document.querySelector('#sso-row')?.hidden === true && document.querySelector('#sso-login') !== null);
 assert('امنیت: صفحه راه‌اندازی اولیه', document.querySelector('#auth-gate')?.hidden === false && document.querySelector('#auth-setup')?.hidden === false);
 assert('امنیت: ورود تا تکمیل راه‌اندازی مسدود است', document.querySelector('#auth-gate')?.hidden === false && document.querySelectorAll('.nav-item').length === 12);
 

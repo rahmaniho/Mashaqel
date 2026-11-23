@@ -563,3 +563,43 @@ Mashaqel/
 - TLS در بسته استقرار با Caddy/Nginx تأمین می‌شود؛ خود سرویس Node فقط HTTP داخلی ارائه می‌دهد (پشت پراکسی معکوس).
 
 **نتیجه آزمون‌ها پس از فاز ۱۲:** `typecheck` ✅ · `npm test` ۹۳/۹۳ ✅ · `verify:web` ۲۴۴/۲۴۴ ✅ · `test:server` **۳۴/۳۴** ✅ · `test:web-ui` **۳۱۹/۳۱۹** ✅ · `test:web-server` **۲۵/۲۵** ✅ · `check:deploy` **۴۴/۴۴** ✅.
+
+---
+
+## ۲۵. پیوست — خروجی اجرای فاز ۱۳ (هویت سازمانی SSO/OIDC)
+
+### الف) جریان پیاده‌شده
+
+```
+کاربر → «ورود با حساب سازمانی» → GET /api/auth/sso/start (state + nonce + PKCE S256)
+      → IdP (Authorization Code) → GET /api/auth/sso/callback
+      → تبادل کد در token_endpoint + تأیید ID Token (RS256/JWKS، iss، aud، exp، nonce)
+      → ساخت/به‌روزرسانی خودکار کاربر → کد یک‌بارمصرف ۲ دقیقه‌ای → ?sso=<code>
+      → POST /api/auth/sso/exchange → توکن نشست ۸ ساعته → پوسته وب
+```
+
+| موضوع | جزئیات | آزمون |
+| :--- | :--- | :--- |
+| Discovery و JWKS | خواندن `.well-known/openid-configuration` و کش ۱۰ دقیقه‌ای کلیدها | `sso.test` |
+| PKCE و state | `code_challenge` (S256)، `state` تصادفی ۴۸ نویسه و `nonce` یک‌بارمصرف با انقضای ۱۰ دقیقه | `sso.test` |
+| تأیید توکن | امضای RS256 با کلید JWKS، `iss`، `aud`، `exp` و `nonce`؛ رد الگوریتم غیر RS256 و امضای دستکاری‌شده | `sso.test` |
+| ساخت خودکار کاربر | نگاشت با `sub`، نام کاربری مشتق از ایمیل با یکتاسازی (`dup` → `dup-1`)، رد `email_verified=false` | `sso.test` |
+| نقش‌دهی | `MASHQEL_OIDC_ADMIN_EMAILS` → ADMIN، بقیه `MASHQEL_OIDC_DEFAULT_ROLE` (پیش‌فرض VIEWER) | `sso.test` |
+| تحویل نشست | کد یک‌بارمصرف ۲ دقیقه‌ای (فقط هش SHA-256 ذخیره می‌شود) + `sso/exchange` | `sso.test` |
+| فقط-SSO | `MASHQEL_LOCAL_LOGIN=off` → ورود رمزی ۴۰۳ «SSO_ONLY»؛ ساخت مدیر اولیه تا نبود کاربر باز می‌ماند | `sso.test` |
+| رابط کاربری | دکمه ورود سازمانی فقط در حالت سرور و تنها با پیکربندی فعال؛ پنهان‌بودن فیلدهای رمز در نصب فقط-SSO؛ پردازش `?sso=` در بوت و پاک‌سازی نشانی | `ui-smoke` · `web-server` |
+
+### ب) تصمیم درباره PostgreSQL
+
+انتقال پایگاه داده به PostgreSQL در این فاز انجام نشد، چون محیط توسعه فعلی نه نمونه PostgreSQL دارد و نه Docker؛
+سه پیش‌نیاز مهاجرت (آداپتور async ذخیره‌سازی، DDL معادل و آزمون یکپارچه روی نمونه واقعی) بدون آن قابل **آزمون** نیست.
+طبق قاعده پروژه (انتشار ندادن قابلیت آزمون‌نشده) این کار به فاز ۱۴ منتقل و در `server/README.md` مستند شد.
+آنچه امروز آماده است: SQLite داخلی Node با WAL، پشتیبان‌گیری نسخه‌دار (`/api/backup`) و همگام‌سازی نسخه‌دار (`/api/state`).
+
+### ج) محدودیت صریح
+
+- SSO فقط با کلاینت‌های OIDC سازگار است (Keycloak، Entra ID، Google Workspace، Auth0 و …)؛ SAML پشتیبانی نمی‌شود.
+- نقش‌ها در سطح «مدیر سازمانی / نقش پیش‌فرض» نگاشت می‌شوند؛ نگاشت گروه‌های IdP به چهار نقش سامانه در فاز بعدی است.
+- محدودسازی کارگاه کاربران SSO به‌صورت پیش‌فرض خالی (همه کارگاه‌ها) است و مدیر سامانه آن را تنظیم می‌کند.
+
+**نتیجه آزمون‌ها پس از فاز ۱۳:** `typecheck` ✅ · `npm test` ۹۳/۹۳ ✅ · `verify:web` ۲۴۴/۲۴۴ ✅ · `test:server` **۳۴/۳۴** ✅ · `test:sso` **۱۵/۱۵** ✅ · `test:web-ui` **۳۲۰/۳۲۰** ✅ · `test:web-server` **۲۶/۲۶** ✅ · `check:deploy` **۴۴/۴۴** ✅.

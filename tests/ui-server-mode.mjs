@@ -110,6 +110,7 @@ const countRows = (selector) => document.querySelectorAll(`${selector} tbody tr`
 assert('سرور: حالت اتصال تشخیص داده شد', document.querySelector('#mode-chip')?.textContent === 'سرور مرکزی', text('#mode-chip'));
 assert('سرور: صفحه راه‌اندازی اولیه', document.querySelector('#auth-gate')?.hidden === false && document.querySelector('#auth-setup')?.hidden === false);
 assert('سرور: دکمه‌های مرکزی در حالت مهمان غیرفعال', document.querySelector('#backend-backup')?.disabled === true);
+assert('SSO: بدون پیکربندی، دکمه سازمانی پنهان و ورود محلی فعال است', document.querySelector('#sso-row')?.hidden === true && document.querySelector('#al-username')?.hidden === false);
 
 setField('au-name', 'مدیر سرور');
 setField('au-username', 'server.admin');

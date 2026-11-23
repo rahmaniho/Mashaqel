@@ -11,14 +11,14 @@
  * پایگاه داده: SQLite داخلی Node (node:sqlite) — مسیر با MASHQEL_DB قابل تغییر است.
  */
 
-import { createHash, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createPublicKey, createVerify, pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
-export const SERVER_VERSION = '12.0.0';
+export const SERVER_VERSION = '13.0.0';
 export const ROLES = ['ADMIN', 'EXPERT', 'PAYROLL', 'VIEWER'];
 export const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,20}$/;
 export const PASSWORD_PATTERN = /^(?=.*[A-Za-z\u0600-\u06FF])(?=.*\d).{8,64}$/;
@@ -101,6 +101,20 @@ export function openDatabase(dbPath) {
       prev_hash TEXT NOT NULL,
       hash TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS sso_states (
+      state TEXT PRIMARY KEY,
+      nonce TEXT NOT NULL,
+      verifier TEXT NOT NULL,
+      redirect_to TEXT,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sso_codes (
+      code_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS state_docs (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       version INTEGER NOT NULL,
@@ -115,6 +129,10 @@ export function openDatabase(dbPath) {
       payload TEXT NOT NULL
     );
   `);
+  const columns = db.prepare('PRAGMA table_info(users)').all().map((column) => column.name);
+  if (!columns.includes('sso_subject')) {
+    db.exec('ALTER TABLE users ADD COLUMN sso_subject TEXT;');
+  }
   return db;
 }
 
@@ -179,6 +197,70 @@ export function verifyAuditChain(db) {
     prev = row.hash;
   }
   return { ok: true, count: rows.length, brokenAt: null, head: prev };
+}
+
+/* ------------------------- هویت سازمانی SSO/OIDC (فاز ۱۳) ------------------------- */
+
+const OIDC_CACHE_MS = 10 * 60 * 1000;
+const SSO_STATE_MS = 10 * 60 * 1000;
+const SSO_CODE_MS = 2 * 60 * 1000;
+
+const decodeBase64Url = (value) => Buffer.from(String(value), 'base64url').toString('utf8');
+const encodeBase64Url = (buffer) => Buffer.from(buffer).toString('base64url');
+
+/** تأیید امضای RS256 توکن هویت با JWKS و بررسی iss/aud/exp/nonce. */
+export function verifyIdToken(token, jwks, { issuer, clientId, nonce } = {}) {
+  const parts = String(token ?? '').split('.');
+  if (parts.length !== 3) throw bad('توکن هویت نامعتبر است.', 'SSO_TOKEN', 401);
+  const [headerPart, payloadPart, signaturePart] = parts;
+  let header;
+  let payload;
+  try {
+    header = JSON.parse(decodeBase64Url(headerPart));
+    payload = JSON.parse(decodeBase64Url(payloadPart));
+  } catch {
+    throw bad('توکن هویت قابل خواندن نیست.', 'SSO_TOKEN', 401);
+  }
+  if (header.alg !== 'RS256') throw bad('الگوریتم امضای توکن پشتیبانی نمی‌شود.', 'SSO_TOKEN', 401);
+  const keys = Array.isArray(jwks?.keys) ? jwks.keys : [];
+  const jwk = keys.find((key) => key.kid === header.kid) ?? keys[0];
+  if (!jwk) throw bad('کلید عمومی تأیید توکن یافت نشد.', 'SSO_TOKEN', 401);
+  let valid = false;
+  try {
+    const publicKey = createPublicKey({ key: jwk, format: 'jwk' });
+    valid = createVerify('RSA-SHA256')
+      .update(`${headerPart}.${payloadPart}`)
+      .verify(publicKey, Buffer.from(signaturePart, 'base64url'));
+  } catch {
+    valid = false;
+  }
+  if (!valid) throw bad('امضای توکن هویت نامعتبر است.', 'SSO_TOKEN', 401);
+  if (issuer && payload.iss !== issuer) throw bad('صادرکننده توکن معتبر نیست.', 'SSO_TOKEN', 401);
+  const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  if (clientId && !audiences.includes(clientId)) throw bad('مخاطب توکن معتبر نیست.', 'SSO_TOKEN', 401);
+  if (!payload.exp || Number(payload.exp) * 1000 < Date.now()) throw bad('توکن هویت منقضی شده است.', 'SSO_TOKEN', 401);
+  if (nonce && payload.nonce !== nonce) throw bad('nonce توکن مطابقت ندارد.', 'SSO_TOKEN', 401);
+  return payload;
+}
+
+export function oidcConfigFromEnv(env = process.env) {
+  if (!env.MASHQEL_OIDC_ISSUER || !env.MASHQEL_OIDC_CLIENT_ID) return null;
+  const appUrl = (env.MASHQEL_OIDC_APP_URL ?? '').replace(/\/+$/, '');
+  return {
+    issuer: env.MASHQEL_OIDC_ISSUER.replace(/\/+$/, ''),
+    clientId: env.MASHQEL_OIDC_CLIENT_ID,
+    clientSecret: env.MASHQEL_OIDC_CLIENT_SECRET ?? '',
+    redirectUri: env.MASHQEL_OIDC_REDIRECT_URI ?? '',
+    appUrl,
+    scope: env.MASHQEL_OIDC_SCOPE ?? 'openid email profile',
+    defaultRole: (env.MASHQEL_OIDC_DEFAULT_ROLE ?? 'VIEWER').toUpperCase(),
+    adminEmails: (env.MASHQEL_OIDC_ADMIN_EMAILS ?? '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+    label: env.MASHQEL_OIDC_LABEL ?? 'ورود با حساب سازمانی',
+    localLogin: env.MASHQEL_LOCAL_LOGIN !== 'off',
+  };
 }
 
 /* --------------------------- همگام‌سازی وضعیت (فاز ۱۲) --------------------------- */
@@ -270,9 +352,14 @@ function countActiveAdmins(db) {
 
 /* --------------------------------- سرور --------------------------------- */
 
-export function createApp({ dbPath = process.env.MASHQEL_DB ?? ':memory:', corsOrigin = process.env.MASHQEL_CORS_ORIGIN ?? '*' } = {}) {
+export function createApp({
+  dbPath = process.env.MASHQEL_DB ?? ':memory:',
+  corsOrigin = process.env.MASHQEL_CORS_ORIGIN ?? '*',
+  oidc = oidcConfigFromEnv(),
+} = {}) {
   const db = openDatabase(dbPath);
   const authHits = new Map();
+  const oidcCache = { discovery: null, jwks: null, fetchedAt: 0 };
 
   function rateLimit(key) {
     const now = Date.now();
@@ -332,6 +419,78 @@ export function createApp({ dbPath = process.env.MASHQEL_DB ?? ':memory:', corsO
     return { token, expiresAt };
   }
 
+  async function oidcMetadata() {
+    if (!oidc) throw bad('ورود سازمانی پیکربندی نشده است.', 'SSO_DISABLED', 404);
+    const fresh = Date.now() - oidcCache.fetchedAt < OIDC_CACHE_MS;
+    if (fresh && oidcCache.discovery && oidcCache.jwks) return { discovery: oidcCache.discovery, jwks: oidcCache.jwks };
+    let discovery = null;
+    try {
+      const response = await fetch(`${oidc.issuer}/.well-known/openid-configuration`, { headers: { accept: 'application/json' } });
+      if (response.ok) discovery = await response.json();
+    } catch {
+      discovery = null;
+    }
+    if (!discovery?.authorization_endpoint || !discovery?.token_endpoint || !discovery?.jwks_uri) {
+      throw bad('سرویس هویت سازمانی در دسترس نیست.', 'SSO_UNAVAILABLE', 503);
+    }
+    let jwks = oidcCache.jwks;
+    try {
+      const response = await fetch(discovery.jwks_uri, { headers: { accept: 'application/json' } });
+      if (response.ok) jwks = await response.json();
+    } catch {
+      /* از کلیدهای کش‌شده استفاده می‌شود */
+    }
+    if (!jwks?.keys?.length) throw bad('کلیدهای عمومی سرویس هویت دریافت نشد.', 'SSO_UNAVAILABLE', 503);
+    oidcCache.discovery = discovery;
+    oidcCache.jwks = jwks;
+    oidcCache.fetchedAt = Date.now();
+    return { discovery, jwks };
+  }
+
+  function uniqueUsername(base) {
+    let candidate = base;
+    let counter = 1;
+    while (db.prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE').get(candidate)) {
+      const suffix = `-${counter}`;
+      candidate = `${base.slice(0, 20 - suffix.length)}${suffix}`;
+      counter += 1;
+    }
+    return candidate;
+  }
+
+  function usernameFromEmail(email) {
+    const local = String(email ?? '').split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '.');
+    let base = local.length >= 3 ? local.slice(0, 20) : `sso.${local}`.slice(0, 20);
+    if (!USERNAME_PATTERN.test(base)) base = `user-${randomBytes(4).toString('hex')}`;
+    return uniqueUsername(base);
+  }
+
+  function provisionSsoUser(claims) {
+    const subject = String(claims.sub ?? '');
+    if (!subject) throw bad('شناسه کاربر در توکن هویت وجود ندارد.', 'SSO_TOKEN', 401);
+    if (claims.email_verified === false) throw bad('ایمیل حساب سازمانی تأیید نشده است.', 'SSO_EMAIL', 403);
+    const email = String(claims.email ?? claims.preferred_username ?? '').toLowerCase();
+    const existing = db.prepare('SELECT * FROM users WHERE sso_subject = ?').get(subject);
+    if (existing) {
+      if (existing.active !== 1) throw bad('این حساب غیرفعال شده است.', 'ACCOUNT_DISABLED', 403);
+      const fullName = String(claims.name ?? existing.full_name);
+      db.prepare('UPDATE users SET full_name = ?, last_login_at = ? WHERE id = ?').run(fullName, nowIso(), existing.id);
+      return db.prepare('SELECT * FROM users WHERE id = ?').get(existing.id);
+    }
+    const role = oidc.adminEmails.includes(email) ? 'ADMIN' : ROLES.includes(oidc.defaultRole) ? oidc.defaultRole : 'VIEWER';
+    const username = email ? uniqueUsername(usernameFromEmail(email)) : uniqueUsername(`sso-${randomBytes(3).toString('hex')}`);
+    const fullName = String(claims.name ?? claims.preferred_username ?? username).slice(0, 80);
+    const randomSecret = randomBytes(24).toString('hex');
+    const { salt, hash, iterations } = hashPassword(randomSecret);
+    const id = `user-${randomBytes(6).toString('hex')}`;
+    db.prepare(
+      `INSERT INTO users (id, full_name, username, role, workshop_ids, active, salt, hash, iterations, created_at, sso_subject)
+       VALUES (?, ?, ?, ?, '[]', 1, ?, ?, ?, ?, ?)`,
+    ).run(id, fullName, username, role, salt, hash, iterations, nowIso(), subject);
+    record(null, 'users', 'CREATE', `ایجاد خودکار حساب سازمانی «${username}» با نقش ${role}`);
+    return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  }
+
   const routes = [];
   const route = (method, pattern, handler, { bodyLimit = BODY_LIMIT } = {}) => routes.push({ method, pattern, handler, bodyLimit });
 
@@ -371,6 +530,9 @@ export function createApp({ dbPath = process.env.MASHQEL_DB ?? ':memory:', corsO
   });
 
   route('POST', /^\/api\/auth\/login$/, (ctx) => {
+    if (oidc && !oidc.localLogin) {
+      throw bad('ورود با رمز محلی در این نصب غیرفعال است؛ از ورود سازمانی (SSO) استفاده کنید.', 'SSO_ONLY', 403);
+    }
     rateLimit(`login:${ctx.ip}`);
     const username = String(ctx.body.username ?? '').trim();
     const password = String(ctx.body.password ?? '');
@@ -402,6 +564,112 @@ export function createApp({ dbPath = process.env.MASHQEL_DB ?? ':memory:', corsO
     const ctxUser = { user: { ...user, failed_attempts: 0, locked_until: null } };
     record(ctxUser, 'security', 'LOGIN', `ورود موفق ${user.full_name} (${user.role})`);
     return { ...session, user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(user.id)) };
+  });
+
+  /* ----------------------------- هویت سازمانی ----------------------------- */
+
+  route('GET', /^\/api\/auth\/sso\/status$/, () => ({
+    enabled: Boolean(oidc),
+    provider: oidc?.label ?? null,
+    localLogin: oidc ? Boolean(oidc.localLogin) : true,
+    startUrl: oidc ? '/api/auth/sso/start' : null,
+  }));
+
+  route('GET', /^\/api\/auth\/sso\/start$/, async (ctx) => {
+    if (!oidc) throw bad('ورود سازمانی پیکربندی نشده است.', 'SSO_DISABLED', 404);
+    const { discovery } = await oidcMetadata();
+    const state = randomBytes(24).toString('hex');
+    const nonce = randomBytes(16).toString('hex');
+    const verifier = encodeBase64Url(randomBytes(32));
+    const challenge = encodeBase64Url(createHash('sha256').update(verifier).digest());
+    const redirectTo = String(ctx.query.redirect ?? '').startsWith('/') ? String(ctx.query.redirect) : null;
+    db.prepare('DELETE FROM sso_states WHERE expires_at < ?').run(nowIso());
+    db.prepare('INSERT INTO sso_states (state, nonce, verifier, redirect_to, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+      state,
+      nonce,
+      verifier,
+      redirectTo,
+      nowIso(),
+      new Date(Date.now() + SSO_STATE_MS).toISOString(),
+    );
+    const url = new URL(discovery.authorization_endpoint);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('client_id', oidc.clientId);
+    url.searchParams.set('redirect_uri', oidc.redirectUri);
+    url.searchParams.set('scope', oidc.scope);
+    url.searchParams.set('state', state);
+    url.searchParams.set('nonce', nonce);
+    url.searchParams.set('code_challenge', challenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+    return { redirect: url.toString() };
+  });
+
+  route('GET', /^\/api\/auth\/sso\/callback$/, async (ctx) => {
+    if (!oidc) throw bad('ورود سازمانی پیکربندی نشده است.', 'SSO_DISABLED', 404);
+    const state = String(ctx.query.state ?? '');
+    const code = String(ctx.query.code ?? '');
+    if (!state || !code) throw bad('پاسخ سرویس هویت ناقص است.', 'SSO_STATE', 400);
+    const pending = db.prepare('SELECT * FROM sso_states WHERE state = ?').get(state);
+    db.prepare('DELETE FROM sso_states WHERE state = ?').run(state);
+    if (!pending) throw bad('درخواست ورود معتبر نیست یا قبلاً استفاده شده است.', 'SSO_STATE', 400);
+    if (new Date(pending.expires_at).getTime() < Date.now()) throw bad('درخواست ورود منقضی شده است.', 'SSO_STATE', 400);
+    rateLimit(`sso:${ctx.ip}`);
+    const { discovery, jwks } = await oidcMetadata();
+    const form = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: oidc.redirectUri,
+      client_id: oidc.clientId,
+      code_verifier: pending.verifier,
+    });
+    if (oidc.clientSecret) form.set('client_secret', oidc.clientSecret);
+    let tokenResponse = null;
+    try {
+      const response = await fetch(discovery.token_endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+        body: form.toString(),
+      });
+      tokenResponse = await response.json().catch(() => null);
+      if (!response.ok) tokenResponse = null;
+    } catch {
+      tokenResponse = null;
+    }
+    if (!tokenResponse?.id_token) throw bad('تبادل کد ورود با سرویس هویت ناموفق بود.', 'SSO_TOKEN', 502);
+    const claims = verifyIdToken(tokenResponse.id_token, jwks, {
+      issuer: oidc.issuer,
+      clientId: oidc.clientId,
+      nonce: pending.nonce,
+    });
+    const user = provisionSsoUser(claims);
+    const loginCode = randomBytes(32).toString('hex');
+    db.prepare('DELETE FROM sso_codes WHERE expires_at < ?').run(nowIso());
+    db.prepare('INSERT INTO sso_codes (code_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(
+      sha256(loginCode),
+      user.id,
+      nowIso(),
+      new Date(Date.now() + SSO_CODE_MS).toISOString(),
+    );
+    record({ user }, 'security', 'LOGIN', `ورود سازمانی ${user.full_name} (${user.role})`);
+    const target = new URL(oidc.appUrl || 'http://localhost/', 'http://localhost/');
+    target.searchParams.set('sso', loginCode);
+    if (pending.redirect_to) target.searchParams.set('next', pending.redirect_to);
+    return { redirect: target.toString() };
+  });
+
+  route('POST', /^\/api\/auth\/sso\/exchange$/, (ctx) => {
+    rateLimit(`exchange:${ctx.ip}`);
+    const code = String(ctx.body.code ?? '');
+    if (!code) throw bad('کد ورود سازمانی ارسال نشده است.', 'SSO_STATE', 400);
+    const row = db.prepare('SELECT * FROM sso_codes WHERE code_hash = ?').get(sha256(code));
+    db.prepare('DELETE FROM sso_codes WHERE code_hash = ?').run(sha256(code));
+    if (!row) throw bad('کد ورود معتبر نیست یا قبلاً استفاده شده است.', 'SSO_STATE', 400);
+    if (new Date(row.expires_at).getTime() < Date.now()) throw bad('کد ورود منقضی شده است.', 'SSO_STATE', 400);
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id);
+    if (!user || user.active !== 1) throw bad('این حساب غیرفعال است.', 'ACCOUNT_DISABLED', 403);
+    db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(nowIso(), user.id);
+    const session = issueSession(user);
+    return { ...session, user: publicUser(user) };
   });
 
   /* ------------------------------ نیازمند ورود ------------------------------ */
@@ -694,6 +962,11 @@ export function createApp({ dbPath = process.env.MASHQEL_DB ?? ':memory:', corsO
         ip: request.socket.remoteAddress ?? 'unknown',
       };
       const result = await match.entry.handler(ctx);
+      if (result && typeof result === 'object' && typeof result.redirect === 'string') {
+        response.writeHead(302, { location: result.redirect, 'cache-control': 'no-store' });
+        response.end();
+        return;
+      }
       send(response, 200, result ?? { ok: true });
     } catch (error) {
       if (error instanceof HttpError) {

@@ -12,3 +12,9 @@ server/data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+
+# متغیرهای محیطی محلی (نمونه‌ها ردیابی می‌شوند)
+.env
+.env.local
+deploy/.env
+!deploy/.env.example

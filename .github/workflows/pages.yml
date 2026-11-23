@@ -12,6 +12,7 @@ on:
       - 'tests/ui-smoke.mjs'
       - 'tests/ui-server-mode.mjs'
       - 'tests/server.test.mjs'
+      - 'tests/sso.test.mjs'
       - 'server/**'
       - 'deploy/**'
       - 'scripts/checkDeploy.ts'
@@ -63,6 +64,9 @@ jobs:
 
       - name: آزمون سرور مرکزی (نقش‌ها، زنجیره گزارش، پشتیبان)
         run: npm run test:server
+
+      - name: آزمون هویت سازمانی (SSO/OIDC با IdP شبیه‌سازی‌شده)
+        run: npm run test:sso
 
       - name: آزمون یکپارچه رابط کاربری با سرور مرکزی
         run: npm run test:web-server

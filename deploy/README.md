@@ -40,6 +40,13 @@ sudo nginx -t && sudo systemctl reload nginx
 
 گواهی TLS با `certbot --nginx -d mashaqel.example.org` یا گواهی سازمانی نصب می‌شود.
 
+## هویت سازمانی (SSO)
+
+در `.env` مقادیر `MASHQEL_OIDC_*` را پر کنید (Issuer، Client ID/Secret، Redirect URI =
+`https://<دامنه>/api/auth/sso/callback`، App URL = `https://<دامنه>/`) و برای نصب فقط-SSO
+`MASHQEL_LOCAL_LOGIN=off` بگذارید. برای Keycloak/Entra/Google Workspace، کلاینت را از نوع
+«محرمانه» با Standard Flow و همان Redirect URI ثبت کنید. جزئیات در `server/README.md`.
+
 ## چک‌لیست امنیتی پیش از بهره‌برداری
 
 1. `MASHQEL_CORS_ORIGIN` را به دامنه واقعی پنل محدود کنید (نه `*`).
@@ -48,6 +55,7 @@ sudo nginx -t && sudo systemctl reload nginx
 4. حساب مدیر اولیه را در اولین ورود بسازید و بلافاصله برای هر کارشناس حساب جدا با محدوده کارگاه تعریف کنید.
 5. گزارش فعالیت سرور را دوره‌ای با `GET /api/audit/verify` بازبینی کنید (زنجیره هش).
 6. `deploy/.env` هرگز در مخزن قرار نگیرد (در `.gitignore` پوشش داده شده است).
+7. برای نصب سازمانی، ورود رمزی محلی را با `MASHQEL_LOCAL_LOGIN=off` ببندید و نقش‌ها را از IdP مدیریت کنید.
 
 ## ارتقا
 
