@@ -1,0 +1,20 @@
+{
+  "name": "mashaqel-engine",
+  "version": "1.0.0",
+  "description": "موتور تخصصی ارزیابی، طبقه‌بندی مشاغل و محاسبات مزد و معوقات قانون کار ایران",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --no-warnings --experimental-strip-types --test tests/*.test.ts",
+    "report": "node --no-warnings --experimental-strip-types tests/generateTestReport.ts",
+    "verify": "npm run typecheck && npm test && npm run report"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3"
+  }
+}

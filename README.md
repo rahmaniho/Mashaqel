@@ -1,1 +1,237 @@
-# Mashaqel
+# مشاغل (Mashaqel) — موتور ارزیابی، طبقه‌بندی مشاغل و محاسبات مزد و معوقات قانون کار ایران
+
+موتور مستقل و مستندسازی‌شده برای سه کارکرد اصلی:
+
+1. **ارزیابی شغل** با دو نظام مستقل:
+   - **سیستم B**: نظام امتیازی چهارعاملی وزارت کار (مصوب `۱۳۸۹/۰۵/۱۸`) با ۴ عامل، ۱۴ زیرعامل و مجموع نظری `۱٬۱۳۷` امتیاز.
+   - **سیستم A**: نظام ارزیابی مشاغل مصوب `۱۳۹۵/۰۳/۲۲` (شماره `۴۹۲۴۰`) با چارچوب شش‌عاملی که جزئیات کمّی آن باید از «طرح مصوب کارگاه» بارگذاری شود.
+2. **طبقه‌بندی**: تطبیق امتیاز کل شغل با جدول نسخه‌بندی‌شده دامنه امتیاز گروه‌ها و تعیین **گروه پیشنهادی** با الزام تأیید کارشناس/کمیته.
+3. **محاسبات مزد**: مزد شغل ۱۴۰۵، پایه سنوات گروهی، مزد مبنا، مزایای رفاهی و انگیزشی، بیمه، اضافه‌کاری/نوبت‌کاری/شب‌کاری و موتور مابه‌التفاوت و معوقات.
+
+> تمام مبالغ در این سامانه **ریال ایران (`IRR`)** است و محافظ‌های سیستمی از اختلاط ریال/تومان جلوگیری می‌کنند.
+
+---
+
+## ۱. اسناد پایه
+
+| سند | شماره / تاریخ |
+| :--- | :--- |
+| قانون کار | مصوب `۱۳۶۹/۰۸/۲۹` |
+| قانون تأمین اجتماعی | مصوب `۱۳۵۴/۰۴/۰۳` |
+| نظام ارزیابی مشاغل (سیستم B) | مصوب `۱۳۸۹/۰۵/۱۸` |
+| دستورالعمل احتساب گواهی‌نامه مهارت فنی و حرفه‌ای | شماره `۱۱۸۹۴` مورخ `۱۳۸۹/۱۱/۲۰` |
+| آیین‌نامه اجرایی طرح طبقه‌بندی مشاغل (تبصره ۱ ماده ۴۹) | مصوب `۱۳۸۹/۱۲/۰۱` |
+| دستورالعمل اجرایی شماره (۲۰) روابط کار | بخشنامه `۲۳۲/۷` مورخ `۱۳۹۰/۰۷/۲۶` |
+| نظام ارزیابی مشاغل ۱۳۹۵ (سیستم A) | شماره `۴۹۲۴۰` مصوب `۱۳۹۵/۰۳/۲۲` |
+| بخشنامه مزد ۱۴۰۵ | شماره `۶۶۸۲` مورخ `۱۴۰۵/۰۱/۳۱` |
+| دستورالعمل اجرای مزد ۱۴۰۵ در کارگاه‌های دارای طرح | شماره `۶۷۲۴` مورخ `۱۴۰۵/۰۱/۳۱` |
+| دستورالعمل مزد کارگران کارمزدی ۱۴۰۵ | شماره `۶۷۲۷` مورخ `۱۴۰۵/۰۱/۳۱` |
+| تصویب‌نامه کمک‌هزینه مسکن ۱۴۰۵ | شماره `۹۲۳۴` مورخ `۱۴۰۵/۰۲/۱۵` هیئت وزیران |
+
+سند مرجع کامل فرمول‌ها، جدول‌ها و وضعیت اعتبار هر قلم: **[`JOB_CLASSIFICATION_FORMULAS.md`](./JOB_CLASSIFICATION_FORMULAS.md)**
+
+### وضعیت‌های چهارگانه اعتبار اقلام
+
+| کد | عنوان | معنا |
+| :--- | :--- | :--- |
+| `۱` | مستند و قابل استفاده | مستند رسمی کامل؛ اجرای مستقیم مجاز |
+| `۲` | استخراج‌شده ولی نیازمند تطبیق | اجرا با هشدار کارشناسی |
+| `۳` | فاقد مستند کافی | امتیازدهی خودکار غیرفعال |
+| `۴` | نیازمند ورود اطلاعات طرح مصوب کارگاه | مقدار کشوری ندارد؛ تا بارگذاری طرح، محاسبه انجام نمی‌شود |
+
+---
+
+## ۲. نصب و اجرا
+
+نیازمندی: **Node.js 22.6 یا بالاتر** (استفاده از `node:sqlite` بومی و اجرای مستقیم TypeScript).
+
+```bash
+npm install
+npm run typecheck   # بررسی نوع‌ها (tsc --noEmit)
+npm test            # ۹۳ آزمون خودکار (node:test)
+npm run report      # تولید TEST_REPORT.md با ورودی/فرمول/انتظار/نتیجه
+```
+
+---
+
+## ۳. استفاده سریع
+
+```ts
+import { MashaqelEngine } from './src/index.ts';
+
+const engine = MashaqelEngine.open();          // دیتابیس درون‌حافظه + مهاجرت + بذرهای رسمی
+// یا: MashaqelEngine.open({ file: './data/mashaqel.db' })
+
+const wage = engine.computeWage({
+  schemeCode: 'SERVICE_COMPANIES_NATIONWIDE',
+  jobGroup: 10,
+  priorDailyJobWage: 3_541_569,               // مزد شغل روزانه ۱۴۰۴
+  priorAccumulatedDailySeniority: 600_403,    // سنوات تجمیعی تا پایان ۱۴۰۴
+  serviceYearsInWorkshop: 5,
+  isMarried: true,
+  eligibleChildrenCount: 1,
+  payableDays: 30,
+  overtimeHours: 12,
+  computationDate: '1405-03-15',
+});
+
+console.log(wage.dailyJobWage);       // 5,654,823
+console.log(wage.dailyBaseWage);      // مزد مبنا = مزد شغل + سنوات + رتبه + سایر
+console.log(wage.welfareSubtotal);    // مزایای رفاهی — کاملاً جدا از مزد شغل و مزد مبنا
+console.log(wage.netPayable);         // خالص پرداختی پس از بیمه و مالیات
+```
+
+### ارزیابی شغل و تعیین گروه (با الزام تأیید کارشناسی)
+
+```ts
+const profileId = engine.createJobProfile({
+  workshopCode: 'WS-001',
+  jobCode: 'JOB-WELDER',
+  jobTitle: 'جوشکار سازه‌های فلزی',
+  organizationalUnit: 'واحد تولید',
+  jobObjective: 'جوشکاری قطعات مطابق نقشه فنی',
+  duties: 'جوشکاری، آماده‌سازی سطوح، کنترل کیفیت درز جوش',
+  responsibilities: 'حفظ کیفیت و ایمنی',
+  authorities: 'توقف کار ناایمن',
+  qualificationRequirements: 'دیپلم فنی و ۳ سال سابقه',
+  requiredEducation: 'دیپلم',
+  requiredExperienceYears: 3,
+  requiredSkills: 'SMAW، MIG، خواندن نقشه',
+  workingConditions: 'محیط تولیدی با صدا و حرارت',
+});
+
+const outcome = engine.evaluateJobProfile({
+  jobProfileId: profileId,
+  systemCode: 'EVAL_1389_POINT_FACTOR',
+  schemeCode: 'NATIONAL_20_GROUP_1389',
+  evaluationDate: '1405-03-15',
+  pointBasedSelections: [
+    { subFactorCode: 'EDU', kind: 'LEVEL', levelCode: 'EDU_3' },
+    { subFactorCode: 'EXP', kind: 'LEVEL', levelCode: 'EXP_3' },
+    { subFactorCode: 'SUP', kind: 'SUPERVISION', directHeadcountByGrade: {}, indirectHeadcount: 0 },
+    { subFactorCode: 'MNT_EFF', kind: 'MATRIX', levelCode: 'L2', secondaryDimensionCode: 'I_MEDIUM' },
+    { subFactorCode: 'PHY_EFF', kind: 'DOMINANT_ROW', levelCode: 'PHY_6B', hoursBracketCode: 'H5' },
+    { subFactorCode: 'ENV_CND', kind: 'ENV_ITEMS', items: [
+      { itemCode: 'ENV_TEMP', intensityCode: 'HIGH', hoursBracketCode: 'B8' },
+    ] },
+    { subFactorCode: 'OCC_HAZ', kind: 'HAZARD', injuryLevelCode: 'HZ_INJ_3',
+      injuryProbabilityCode: 'HIGH', diseaseProbabilityCode: 'MEDIUM' },
+    // ... سایر زیرعامل‌های فعال الزامی‌اند
+  ],
+});
+
+console.log(outcome.totalScore, outcome.proposedGroup, outcome.approvalStatus);
+// approvalStatus همیشه «PENDING_COMMITTEE_APPROVAL» است تا کارشناس تأیید کند
+
+engine.approveEvaluation({
+  evaluationId: outcome.evaluationId,
+  reviewerName: 'کارشناس ارزیابی مشاغل',
+  committeeReferenceNo: '۱۴۰۵/۸۸۸ — صورت‌جلسه کمیته',
+  finalGroup: 12,
+});
+```
+
+### بارگذاری طرح مصوب کارگاه برای سیستم A (نظام ۱۳۹۵)
+
+```ts
+engine.loadWorkshopScheme({
+  systemCode: 'EVAL_1395_FRAMEWORK',
+  schemeCode: 'WS-A',
+  schemeVersion: 'A-1.0',
+  effectiveFrom: '1405-01-01',
+  ministryApprovalReference: '۱۴۰۵/۱۲۳۴۵ — تأیید اداره کل روابط کار',
+  loadedBy: 'کارشناس طرح',
+  subFactors: [/* عوامل، سطوح، امتیاز و وزن مصوب کارگاه */],
+  groupRanges: [/* بازه امتیاز گروه‌های مصوب کارگاه */],
+});
+```
+
+### معوقات و مابه‌التفاوت
+
+```ts
+const arrears = engine.computeArrears({
+  periods: [
+    { periodYearMonth: '1405-01', payableDays: 30, entitledDailyWage: 5_654_823, paidDailyWage: 5_541_850 },
+    { periodYearMonth: '1405-02', payableDays: 31, entitledDailyWage: 5_654_823, paidDailyWage: 5_541_850 },
+  ],
+  includeVariableConsequences: true, // ذیل ماده ۹ آیین‌نامه: بدون توافق ⇒ false
+});
+console.log(arrears.totalArrears);
+```
+
+---
+
+## ۴. ساختار پروژه
+
+```
+sql/schema.sql                     اسکیمای ۱۷ جدول + ایندکس‌ها + قیدهای CHECK
+src/core/                          وضعیت اعتبار، خطاها، تاریخ شمسی، محافظ ریال/تومان، قواعد مکمل
+src/db/                            اتصال، مهاجرت‌ها، اجرای پرس‌وجو، بذرهای رسمی
+src/services/                      ارزیابی (B و A)، تطبیق گروه، سنوات، مزد، معوقات، شناسنامه/تأیید، تاریخچه
+src/engine.ts                      دروازه یکپارچه (MashaqelEngine)
+src/index.ts                       نقاط صادرشده عمومی
+tests/scenarios.ts                 ۵۷ سناریوی آزمون با ورودی/فرمول/انتظار/نتیجه
+tests/engine.test.ts               آزمون‌های خودکار node:test
+tests/generateTestReport.ts        تولید TEST_REPORT.md
+```
+
+### جداول دیتابیس (۱۷ جدول مستقل)
+
+| # | جدول | نقش |
+| :--: | :--- | :--- |
+| ۱ | `legal_documents` | شناسنامه اسناد قانونی مرجع |
+| ۲ | `formula_versions` | نسخه‌بندی فرمول‌ها با منبع، بخشنامه، واحد پول و وضعیت اعتبار |
+| ۳ | `evaluation_systems` | نظام‌های ارزیابی (۱۳۸۹ و ۱۳۹۵) |
+| ۴ | `evaluation_factors` | عوامل اصلی (۴ و ۶ عاملی) |
+| ۵ | `evaluation_sub_factors` | زیرعامل‌ها و سازوکار امتیازدهی |
+| ۶ | `evaluation_levels` | سطوح/درجات و ابعاد ثانویه ماتریسی |
+| ۷ | `evaluation_scores` | امتیاز هر سطح با نسخه و بازه اعتبار |
+| ۸ | `evaluation_weights` | وزن و ضریب عوامل/زیرعامل‌ها در هر طرح |
+| ۹ | `group_score_ranges` | دامنه امتیاز، سقف `Xn`، مازاد `Bn` و تفاوت `Δn` گروه‌ها |
+| ۱۰ | `job_profiles` | شناسنامه شغل |
+| ۱۱ | `job_evaluations` | ارزیابی، گروه پیشنهادی، هشدارها و وضعیت تأیید |
+| ۱۲ | `wage_tables` | جدول مزد گروه‌ها با ضریب ریالی و کف قانونی |
+| ۱۳ | `seniority_tables` | نرخ پایه سنوات گروهی و جدول سنوات تجمیعی گذشته |
+| ۱۴ | `annual_labor_parameters` | پارامترهای سالانه (نسخه‌بندی‌شده، مستقل از مزد) |
+| ۱۵ | `employee_records` | پرونده پرسنلی و احکام کارگزینی |
+| ۱۶ | `wage_calculations` | نتایج محاسبه مزد با تفکیک کامل اجزا |
+| ۱۷ | `calculation_history` | تاریخچه ممیزی و ردیابی کامل محاسبات |
+
+---
+
+## ۵. فرمول‌های کلیدی ۱۴۰۵ (ریال)
+
+| فرمول | رابطه |
+| :--- | :--- |
+| مزد شغل روزانه | `max(round(مزد ۱۴۰۴ × 1.45 + 519,549), 5,541,850)` |
+| مزد شغل ماهانه | `مزد روزانه × روزهای قابل پرداخت` (پیش‌فرض ۳۰) |
+| پایه سنوات روزانه | `round(سنوات تجمیعی ۱۴۰۴ × 1.45) + نرخ پایه سنوات گروه ۱۴۰۵` |
+| مزد مبنا | `مزد شغل + مزد سنوات + مزد رتبه + سایر اجزای مصوب طرح` |
+| مزد جدول طرح | `Yn = b + a × (Xn − 80)` با `a_1405 = 1.45 × a_1404` و `b ≥ 5,541,850` |
+| حق اولاد | `3 × 5,541,850 = 16,625,550` ریال ماهانه به ازای هر فرزند |
+| اضافه‌کاری | `مزد مبنا ÷ 7.33 × 1.4 × ساعت` |
+| بیمه | کارگر `7%` و کارفرما `23%` از مزد و مزایای مشمول (حق اولاد معاف) |
+| معوقات | `Σ max(0, مزد استحقاقی − مزد پرداختی) × روز + Δمزایای متغیر` |
+
+پارامترهای نسخه `1405-v2` (پس از تصویب‌نامه مسکن): بن ۲۲٬۰۰۰٬۰۰۰ — مسکن ۳۰٬۰۰۰٬۰۰۰ — تأهل ۵٬۰۰۰٬۰۰۰ — حق اولاد ۱۶٬۶۲۵٬۵۵۰ ریال ماهانه.
+
+---
+
+## ۶. محدودیت‌های آگاهانه (مطابق مستندات)
+
+1. **زیرعامل «مسئولیت ایمنی دیگران»** در نظام ۱۳۸۹: سقف ۳۰ امتیاز مستند است اما جدول ریزسطوح رسمی در دسترس نبود؛ امتیازدهی خودکار آن غیرفعال و امتیاز کل «ناقص» علامت‌گذاری می‌شود.
+2. **وزن، سطح و امتیاز نظام ۱۳۹۵** برای هر کارگاه اختصاصی است؛ بدون بارگذاری طرح مصوب (با شماره تأییدیه اداره کل روابط کار) امتیازدهی انجام نمی‌شود.
+3. **پلکان مالیات بر حقوق ۱۴۰۵** ثبت نشده است؛ مالیات صفر با هشدار محاسبه می‌شود تا پس از بارگذاری قانون بودجه فعال گردد.
+4. **کمک‌هزینه مسکن** در دو نسخه (`1405-v1` = ۹٬۰۰۰٬۰۰۰ و `1405-v2` = ۳۰٬۰۰۰٬۰۰۰ ریال) نگهداری می‌شود تا محاسبه مابه‌التفاوت فروردین ۱۴۰۵ ممکن باشد.
+5. **گروه شغلی** بدون تأیید کارشناس و شماره صورت‌جلسه کمیته، در سطح دیتابیس (قید `CHECK`) قطعی نمی‌شود.
+
+---
+
+## ۷. آزمون و گزارش
+
+```bash
+npm test          # 93 آزمون: 57 سناریوی محاسباتی + 36 آزمون ساختاری/واحدی
+npm run report    # تولید TEST_REPORT.md
+```
+
+گزارش کامل با ورودی، فرمول، انتظار و نتیجه واقعی هر سناریو: **[`TEST_REPORT.md`](./TEST_REPORT.md)**
