@@ -17,6 +17,52 @@
   <body>
     <a class="skip-link" href="#main-content">پرش به محتوای اصلی</a>
 
+
+    <!-- ============================ ورود و راه‌اندازی ============================ -->
+    <div class="auth-gate" id="auth-gate" hidden>
+      <div class="auth-card">
+        <div class="auth-brand">
+          <span class="auth-logo" aria-hidden="true">⌘</span>
+          <div>
+            <strong>مشاغل</strong>
+            <span>سامانه جامع ارزیابی و طبقه‌بندی مشاغل</span>
+          </div>
+        </div>
+
+        <form id="auth-setup" class="auth-form" hidden autocomplete="off">
+          <h2>راه‌اندازی اولیه — حساب مدیر سامانه</h2>
+          <p class="muted small">
+            هیچ کاربری ثبت نشده است. نخستین حساب با نقش «مدیر سامانه» ساخته می‌شود و کلید دسترسی به سایر نقش‌ها است.
+          </p>
+          <label class="field"><span>نام و نام خانوادگی *</span><input id="au-name" required /></label>
+          <label class="field"><span>نام کاربری *</span><input id="au-username" required dir="ltr" placeholder="admin" /></label>
+          <label class="field"><span>رمز عبور *</span><input id="au-password" type="password" required dir="ltr" /></label>
+          <label class="field"><span>تکرار رمز عبور *</span><input id="au-password2" type="password" required dir="ltr" /></label>
+          <p class="hint">رمز حداقل ۸ نویسه و شامل حرف و رقم باشد.</p>
+          <div class="form-actions">
+            <button class="primary-btn" type="submit">ساخت حساب مدیر و ورود</button>
+            <span class="form-error" id="auth-setup-msg" role="alert"></span>
+          </div>
+        </form>
+
+        <form id="auth-login" class="auth-form" hidden autocomplete="off">
+          <h2>ورود به سامانه</h2>
+          <p class="muted small">دسترسی بر اساس نقش کاربر و کارگاه‌های مجاز کنترل می‌شود.</p>
+          <label class="field"><span>نام کاربری</span><input id="al-username" required dir="ltr" /></label>
+          <label class="field"><span>رمز عبور</span><input id="al-password" type="password" required dir="ltr" /></label>
+          <div class="form-actions">
+            <button class="primary-btn" type="submit">ورود</button>
+            <span class="form-error" id="auth-login-msg" role="alert"></span>
+          </div>
+        </form>
+
+        <p class="auth-note">
+          این کنترل دسترسی در همین مرورگر اجرا می‌شود (نسخه استاتیک). برای احراز هویت مرکزی، تفکیک واقعی کاربران و
+          گزارش فعالیت قابل اتکا، اجرای سرویس Backend لازم است؛ این محدودیت در بخش «مدیریت کاربران» صریح اعلام شده است.
+        </p>
+      </div>
+    </div>
+
     <div class="app-shell">
       <!-- ============================ منوی کناری ============================ -->
       <aside class="sidebar" id="sidebar" aria-label="منوی اصلی سامانه">
@@ -69,13 +115,13 @@
           <button class="nav-item" data-route="settings" type="button">
             <span class="nav-icon" aria-hidden="true">⚙</span><span>تنظیمات</span>
           </button>
-          <button class="nav-item" data-route="users" type="button" disabled title="فاز ۱۰ — مدیریت کاربران و نقش‌ها (نیازمند Backend)">
-            <span class="nav-icon" aria-hidden="true">☺</span><span>مدیریت کاربران</span><span class="nav-badge">فاز ۱۰</span>
+          <button class="nav-item" data-route="users" type="button">
+            <span class="nav-icon" aria-hidden="true">☺</span><span>مدیریت کاربران</span>
           </button>
         </nav>
 
         <div class="sidebar-footer">
-          <p class="sidebar-note">نسخه <strong>۲٫۷</strong> — فاز ۹ (گزارش‌ساز)</p>
+          <p class="sidebar-note">نسخه <strong>۳٫۰</strong> — فاز ۱۰ (امنیت و نقش‌ها)</p>
           <p class="sidebar-note small">تمام مبالغ به ریال ایران (IRR)</p>
         </div>
       </aside>
@@ -96,6 +142,8 @@
             <span class="badge badge-currency" title="تمام مبالغ به ریال ایران است">ریال (IRR)</span>
             <button id="digits-toggle" class="ghost-btn" type="button" title="تغییر شکل ارقام">ارقام: فارسی</button>
             <button class="ghost-btn" type="button" id="print-btn" title="چاپ صفحه جاری">چاپ</button>
+            <span class="user-chip" id="user-chip" title="کاربر جاری"></span>
+            <button class="ghost-btn" type="button" id="logout-btn" title="خروج از حساب">خروج</button>
           </div>
         </header>
 
@@ -1075,6 +1123,104 @@
                     <table class="data-table" id="cmp-table"></table>
                   </div>
                 </div>
+              </div>
+            </div>
+          </section>
+
+
+          <!-- ---------------------------- مدیریت کاربران ---------------------------- -->
+          <section id="view-users" class="view">
+            <div class="panel-head no-print">
+              <div>
+                <h2>مدیریت کاربران و سطوح دسترسی</h2>
+                <p class="muted">
+                  نقش‌ها: مدیر سامانه (همه ماژول‌ها)، کارشناس طبقه‌بندی (مشاغل، ارزیابی، تأیید گروه، گزارش)،
+                  کارشناس حقوق و دستمزد (کارکنان، حقوق، معوقات، گزارش) و بازدیدکننده (فقط مشاهده).
+                </p>
+              </div>
+              <div class="head-actions">
+                <button class="primary-btn" type="button" id="user-new">＋ کاربر جدید</button>
+              </div>
+            </div>
+
+            <div class="card security-note">
+              <strong>محدودیت صریح این نسخه:</strong>
+              کنترل دسترسی، رمزنگاری رمز عبور و گزارش فعالیت به‌صورت محلی در همین مرورگر انجام می‌شود.
+              این لایه از دسترسی اشتباه همکاران روی همان دستگاه جلوگیری می‌کند، اما جایگزین احراز هویت مرکزی،
+              کنترل دسترسی سمت سرور و گزارش تغییرات غیرقابل‌تغییر (Audit Trail) نیست. اجرای Backend در گام بعدی نقشه راه است.
+            </div>
+
+            <form id="user-form" class="card no-print" hidden autocomplete="off">
+              <div class="card-head">
+                <h3 id="user-form-title">کاربر جدید</h3>
+                <button class="ghost-btn" type="button" id="user-cancel">انصراف</button>
+              </div>
+              <input type="hidden" id="uf-id" />
+              <div class="form-grid">
+                <label class="field"><span>نام و نام خانوادگی *</span><input id="uf-name" required /></label>
+                <label class="field"><span>نام کاربری *</span><input id="uf-username" required dir="ltr" /></label>
+                <label class="field">
+                  <span>نقش</span>
+                  <select id="uf-role">
+                    <option value="ADMIN">مدیر سامانه</option>
+                    <option value="EXPERT">کارشناس طبقه‌بندی</option>
+                    <option value="PAYROLL">کارشناس حقوق و دستمزد</option>
+                    <option value="VIEWER">بازدیدکننده</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>وضعیت</span>
+                  <select id="uf-active">
+                    <option value="ACTIVE">فعال</option>
+                    <option value="INACTIVE">غیرفعال</option>
+                  </select>
+                </label>
+                <label class="field"><span>رمز عبور <span class="small muted">(برای کاربر جدید الزامی)</span></span><input id="uf-password" type="password" dir="ltr" placeholder="حداقل ۸ نویسه شامل حرف و رقم" /></label>
+                <label class="field field-wide">
+                  <span>کارگاه‌های مجاز <span class="small muted">(خالی = همه کارگاه‌ها)</span></span>
+                  <select id="uf-workshops" multiple size="4"></select>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button class="primary-btn" type="submit">ذخیره کاربر</button>
+                <button class="ghost-btn" type="button" id="user-cancel-2">انصراف</button>
+                <span class="form-error" id="user-error" role="alert"></span>
+              </div>
+            </form>
+
+            <div class="card">
+              <div class="card-head">
+                <div>
+                  <h3>کاربران سامانه</h3>
+                  <p class="muted small">حذف آخرین مدیر سامانه و غیرفعال‌کردن حساب جاری مسدود است.</p>
+                </div>
+                <span class="badge badge-soft" id="users-count"></span>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table" id="users-table"></table>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <div>
+                  <h3>گزارش فعالیت (Audit Log)</h3>
+                  <p class="muted small">آخرین ۲۰۰ رویداد: ورود/خروج، ایجاد، ویرایش، حذف، تأیید و رد دسترسی — همراه با کاربر، نقش، ماژول و زمان.</p>
+                </div>
+                <div class="head-actions">
+                  <button class="ghost-btn" type="button" id="activity-export">خروجی CSV</button>
+                  <button class="ghost-btn" type="button" id="activity-refresh">به‌روزرسانی</button>
+                </div>
+              </div>
+              <div class="toolbar">
+                <label class="search-field">
+                  <span class="small muted">جستجو</span>
+                  <input id="activity-search" type="search" placeholder="کاربر، ماژول، اقدام یا جزئیات" />
+                </label>
+                <span class="badge badge-soft" id="activity-count"></span>
+              </div>
+              <div class="table-wrap tall">
+                <table class="data-table" id="activity-table"></table>
               </div>
             </div>
           </section>

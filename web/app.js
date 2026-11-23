@@ -13,7 +13,8 @@ const state = {
   groupResult: null,
   evalResult: null,
   evalControls: [],
-  store: { workshops: [], activeWorkshopId: null, units: [], jobs: [], employees: [] },
+  store: { workshops: [], activeWorkshopId: null, units: [], jobs: [], employees: [], activityLog: [] },
+  started: false,
 };
 
 const NUMBER_FORMAT = {
@@ -139,9 +140,10 @@ function readStore() {
       units: Array.isArray(parsed?.units) ? parsed.units : [],
       jobs: Array.isArray(parsed?.jobs) ? parsed.jobs : [],
       employees: Array.isArray(parsed?.employees) ? parsed.employees : [],
+      activityLog: Array.isArray(parsed?.activityLog) ? parsed.activityLog : [],
     };
   } catch {
-    return { workshops: [], activeWorkshopId: null, units: [], jobs: [], employees: [] };
+    return { workshops: [], activeWorkshopId: null, units: [], jobs: [], employees: [], activityLog: [] };
   }
 }
 
@@ -152,6 +154,7 @@ function writeStore(patch) {
     units: state.store.units ?? [],
     jobs: state.store.jobs ?? [],
     employees: state.store.employees ?? [],
+    activityLog: state.store.activityLog ?? [],
     ...patch,
   };
   state.store = next;
@@ -181,7 +184,9 @@ function newId(prefix) {
 }
 
 function activeWorkshop() {
-  return state.store.workshops.find((row) => row.id === state.store.activeWorkshopId) ?? null;
+  const workshop = state.store.workshops.find((row) => row.id === state.store.activeWorkshopId) ?? null;
+  if (!workshop) return null;
+  return isWorkshopAllowed(workshop.id) ? workshop : null;
 }
 
 let toastTimer = null;
@@ -216,6 +221,11 @@ const ROUTES = {
     title: 'مدیریت کارکنان',
     subtitle: 'پرونده پرسنلی، قرارداد، جایگاه سازمانی، داده مزد و تاریخچه ارتقا',
     view: 'view-employees',
+  },
+  users: {
+    title: 'مدیریت کاربران',
+    subtitle: 'نقش‌ها، کارگاه‌های مجاز و گزارش فعالیت',
+    view: 'view-users',
   },
   reports: {
     title: 'گزارش‌ها',
@@ -286,10 +296,16 @@ function navigate(route, options = {}) {
     if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   if (target === 'dashboard') renderDashboard();
+  if (target === 'workshops') {
+    renderWorkshopTable();
+    renderWorkshopPicker();
+  }
   if (target === 'org') renderOrgView();
   if (target === 'employees') renderEmployeesView();
   if (target === 'arrears') renderArrearsView();
   if (target === 'reports') renderReportsView();
+  if (target === 'users') renderUsersView();
+  applyRouteAccess(target);
   if (target === 'jobs') renderJobsView();
   if (target === 'evaluation') renderEvalJobOptions();
   if (target === 'group') renderGroupJobsComparison();
@@ -528,7 +544,7 @@ function renderWorkshopPicker() {
   const select = document.getElementById('active-workshop');
   if (!select) return;
   const options = ['<option value="">بدون کارگاه (پیش‌فرض)</option>'];
-  for (const workshop of state.store.workshops) {
+  for (const workshop of state.store.workshops.filter((row) => isWorkshopAllowed(row.id))) {
     options.push(
       `<option value="${escapeHtml(workshop.id)}">${escapeHtml(workshop.workshopName)} — ${escapeHtml(workshop.workshopCode)}</option>`,
     );
@@ -579,6 +595,7 @@ function initWorkshops() {
         showToast(`کارگاه فعال: ${workshop.workshopName}`);
       }
       if (button.dataset.action === 'delete') {
+        if (!ensureAdmin('حذف کارگاه')) return;
         const jobCount = state.store.jobs.filter((job) => job.workshopId === workshop.id).length;
         const confirmed = typeof window.confirm === 'function'
           ? window.confirm(
@@ -589,6 +606,7 @@ function initWorkshops() {
         const workshops = state.store.workshops.filter((row) => row.id !== workshop.id);
         const activeWorkshopId = state.store.activeWorkshopId === workshop.id ? null : state.store.activeWorkshopId;
         const jobs = state.store.jobs.filter((job) => job.workshopId !== workshop.id);
+        logActivity('workshops', 'DELETE', `حذف کارگاه «${workshop.workshopName}» با ${jobCount} شغل وابسته`);
         writeStore({ workshops, activeWorkshopId, jobs });
         renderWorkshopTable();
         renderJobsView();
@@ -601,6 +619,7 @@ function initWorkshops() {
 }
 
 function openWorkshopForm(workshop) {
+  if (!ensureWrite('workshops', 'ویرایش کارگاه')) return;
   const form = document.getElementById('workshop-form');
   if (!form) return;
   form.hidden = false;
@@ -628,6 +647,7 @@ function closeWorkshopForm() {
 }
 
 function saveWorkshopFromForm() {
+  if (!ensureWrite('workshops', 'ذخیره کارگاه')) return;
   const errorTarget = document.getElementById('workshop-error');
   const id = document.getElementById('wf-id').value;
   const draft = {
@@ -678,13 +698,15 @@ function saveWorkshopFromForm() {
   writeStore({ workshops, activeWorkshopId });
   closeWorkshopForm();
   renderWorkshopTable();
+  logActivity('workshops', exists ? 'UPDATE' : 'CREATE', `${exists ? 'ویرایش' : 'ایجاد'} کارگاه «${draft.workshopName}» (کد ${draft.workshopCode})`);
   showToast(exists ? 'کارگاه ویرایش شد' : 'کارگاه جدید ثبت شد');
 }
 
 function renderWorkshopTable() {
   const table = document.getElementById('workshop-table');
   if (!table) return;
-  if (state.store.workshops.length === 0) {
+  const scopedWorkshops = state.store.workshops.filter((row) => isWorkshopAllowed(row.id));
+  if (scopedWorkshops.length === 0) {
     table.innerHTML = `
       <tbody>
         <tr>
@@ -706,7 +728,7 @@ function renderWorkshopTable() {
       </tr>
     </thead>
     <tbody>
-      ${state.store.workshops
+      ${scopedWorkshops
         .map((workshop) => {
           const isActive = workshop.id === state.store.activeWorkshopId;
           return `<tr class="${isActive ? 'is-highlight' : ''}">
@@ -742,6 +764,7 @@ function initSettings() {
 
   if (exportButton) {
     exportButton.addEventListener('click', () => {
+      if (!ensureWrite('settings', 'پشتیبان‌گیری')) return;
       const payload = {
         schema: 'mashaqel.local-backup',
         version: 2,
@@ -759,6 +782,7 @@ function initSettings() {
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
+        logActivity('settings', 'BACKUP', `پشتیبان‌گیری کامل (${state.store.workshops.length} کارگاه، ${state.store.jobs.length} شغل، ${state.store.employees.length} کارمند)`);
         if (message) message.textContent = 'فایل پشتیبان ساخته شد.';
       } catch {
         if (message) message.textContent = 'ساخت فایل پشتیبان در این مرورگر ممکن نشد.';
@@ -768,6 +792,7 @@ function initSettings() {
 
   if (importInput) {
     importInput.addEventListener('change', async () => {
+      if (!ensureAdmin('بازیابی پشتیبان')) return;
       const file = importInput.files?.[0];
       if (!file) return;
       try {
@@ -782,6 +807,7 @@ function initSettings() {
         });
         renderWorkshopTable();
         renderSettingsMeta();
+        logActivity('settings', 'RESTORE', `بازیابی پشتیبان با ${incoming.workshops.length} کارگاه`);
         if (message) message.textContent = `بازیابی انجام شد: ${incoming.workshops.length} کارگاه.`;
         showToast('داده‌ها بازیابی شد');
       } catch (error) {
@@ -794,6 +820,7 @@ function initSettings() {
 
   if (clearButton) {
     clearButton.addEventListener('click', () => {
+      if (!ensureAdmin('پاک‌سازی داده‌ها')) return;
       const confirmed = typeof window.confirm === 'function'
         ? window.confirm('تمام داده‌های محلی (کارگاه‌ها و انتخاب‌ها) پاک شود؟ از فایل پشتیبان مطمئن شوید.')
         : true;
@@ -805,6 +832,7 @@ function initSettings() {
       renderJobsView();
       renderSettingsMeta();
       renderDashboard();
+      logActivity('settings', 'CLEAR', 'پاک‌سازی کامل داده‌های محلی');
       if (message) message.textContent = 'داده‌های محلی پاک شد.';
     });
   }
@@ -1542,6 +1570,7 @@ function renderJobsTable() {
 }
 
 function openJobForm(job) {
+  if (!ensureWrite('jobs', 'ویرایش پرونده شغل')) return;
   const form = document.getElementById('job-form');
   if (!form) return;
   form.hidden = false;
@@ -1582,6 +1611,7 @@ function closeJobForm() {
 }
 
 function saveJobFromForm() {
+  if (!ensureWrite('jobs', 'ذخیره شغل')) return;
   const workshop = activeWorkshop();
   const errorTarget = document.getElementById('job-error');
   if (!workshop) {
@@ -1678,12 +1708,14 @@ function duplicateJob(job) {
 }
 
 function deleteJob(job) {
+  if (!ensureAdmin('حذف شغل')) return;
   const confirmed = typeof window.confirm === 'function'
     ? window.confirm(`حذف شغل «${job.title}»؟ این عمل قابل بازگشت نیست.`)
     : true;
   if (!confirmed) return;
   writeStore({ ...state.store, jobs: state.store.jobs.filter((row) => row.id !== job.id) });
   renderJobsView();
+  logActivity('jobs', 'DELETE', `حذف شغل «${job.title}» (${job.jobCode})`);
   showToast('شغل حذف شد');
 }
 
@@ -1928,6 +1960,7 @@ function renderJobProfile(job) {
 }
 
 function saveApproval(jobId) {
+  if (!ensureWrite('approval', 'ثبت تصمیم تأیید گروه')) return;
   const job = jobById(jobId);
   const message = document.getElementById('approval-msg');
   if (!job?.evaluation) {
@@ -2002,10 +2035,12 @@ function saveApproval(jobId) {
       ? `تصمیم تأیید ثبت شد: گروه نهایی ${finalGroup ? fmt(finalGroup) : '—'} — ${APPROVAL_STATUS_LABELS[status] ?? status}`
       : `تصمیم ثبت شد: ${APPROVAL_STATUS_LABELS[status] ?? status}`;
   }
+  logActivity('approval', approve ? 'APPROVE' : 'UPDATE', `ثبت تصمیم «${APPROVAL_STATUS_LABELS[status] ?? status}» برای شغل ${job.jobCode}${finalGroup ? ` — گروه نهایی ${finalGroup}` : ''}`);
   showToast(approve ? 'تصمیم تأیید گروه ثبت شد' : 'تصمیم کارشناسی ثبت شد');
 }
 
 function reopenApproval(jobId) {
+  if (!ensureWrite('approval', 'بازگشت تأیید به انتظار')) return;
   const job = jobById(jobId);
   if (!job?.evaluation) return;
   const confirmed = typeof window.confirm === 'function'
@@ -2826,6 +2861,7 @@ function initOrg() {
 }
 
 function openOrgForm(unit) {
+  if (!ensureWrite('org', 'ویرایش ساختار سازمانی')) return;
   const form = document.getElementById('org-form');
   if (!form) return;
   form.hidden = false;
@@ -2866,6 +2902,7 @@ function renderOrgParentOptions(excludeId, selectedId = '') {
 }
 
 function saveUnitFromForm() {
+  if (!ensureWrite('org', 'ذخیره واحد سازمانی')) return;
   const workshop = activeWorkshop();
   const errorTarget = document.getElementById('org-error');
   if (!workshop) {
@@ -2923,10 +2960,12 @@ function saveUnitFromForm() {
   writeStore({ ...state.store, units });
   closeOrgForm();
   renderOrgView();
+  logActivity('org', existing ? 'UPDATE' : 'CREATE', `${existing ? 'ویرایش' : 'ایجاد'} واحد «${unit.title}» (کد ${unit.code})`);
   showToast(existing ? 'واحد سازمانی به‌روزرسانی شد' : 'واحد سازمانی ثبت شد');
 }
 
 function deleteUnit(unit) {
+  if (!ensureWrite('org', 'حذف واحد سازمانی')) return;
   const errorTarget = document.getElementById('org-error');
   const children = workshopUnits().filter((row) => row.parentId === unit.id);
   if (children.length > 0) {
@@ -2948,6 +2987,7 @@ function deleteUnit(unit) {
   if (!confirmed) return;
   writeStore({ ...state.store, units: state.store.units.filter((row) => row.id !== unit.id) });
   renderOrgView();
+  logActivity('org', 'DELETE', `حذف واحد «${unit.title}» (کد ${unit.code})`);
   showToast('واحد سازمانی حذف شد');
 }
 
@@ -3465,6 +3505,7 @@ function renderEmployeeFormOptions(employee) {
 }
 
 function openEmployeeForm(employee) {
+  if (!ensureWrite('employees', 'ویرایش پرونده کارمند')) return;
   const form = document.getElementById('employee-form');
   if (!form) return;
   renderEmployeeFormOptions(employee);
@@ -3508,6 +3549,7 @@ function closeEmployeeForm() {
 }
 
 function saveEmployeeFromForm() {
+  if (!ensureWrite('employees', 'ذخیره پرونده کارمند')) return;
   const workshop = activeWorkshop();
   const errorTarget = document.getElementById('emp-error');
   if (!workshop) {
@@ -3591,10 +3633,12 @@ function saveEmployeeFromForm() {
   writeStore({ ...state.store, employees });
   closeEmployeeForm();
   renderEmployeesView();
+  logActivity('employees', existing ? 'UPDATE' : 'CREATE', `${existing ? 'ویرایش' : 'ایجاد'} پرونده «${draft.firstName} ${draft.lastName}» (${draft.personnelCode})`);
   showToast(existing ? 'پرونده کارمند به‌روزرسانی شد' : 'کارمند جدید ثبت شد');
 }
 
 function deleteEmployee(employee) {
+  if (!ensureAdmin('حذف پرونده کارمند')) return;
   const confirmed = typeof window.confirm === 'function'
     ? window.confirm(`حذف پرونده «${employee.firstName} ${employee.lastName}»؟ تاریخچه نیز حذف می‌شود.`)
     : true;
@@ -3606,6 +3650,7 @@ function deleteEmployee(employee) {
     if (card) card.hidden = true;
   }
   renderEmployeesView();
+  logActivity('employees', 'DELETE', `حذف پرونده «${employee.firstName} ${employee.lastName}» (${employee.personnelCode})`);
   showToast('پرونده کارمند حذف شد');
 }
 
@@ -3699,6 +3744,7 @@ function openEmployeeProfile(id) {
 }
 
 function promoteEmployee(employeeId) {
+  if (!ensureWrite('employees', 'ثبت ارتقا/تغییر شغل')) return;
   const employee = employeeById(employeeId);
   const message = document.getElementById('promo-msg');
   if (!employee) {
@@ -3756,6 +3802,7 @@ function promoteEmployee(employeeId) {
     success.textContent = `تغییر ثبت شد: گروه ${updated.group ? fmt(updated.group) : '—'} — ${escapeHtml(newJob?.title ?? '')}`;
   }
   document.getElementById('promo-reason').value = '';
+  logActivity('employees', 'PROMOTE', `ارتقا «${employee.firstName} ${employee.lastName}» از گروه ${employee.group ?? '—'} به ${newGroup ?? '—'} — ${reason}`);
   showToast('تاریخچه ارتقا ثبت شد');
 }
 
@@ -3823,6 +3870,7 @@ function splitCsvLine(line) {
 }
 
 function importEmployeesCsv(rawText) {
+  if (!ensureWrite('employees', 'ورود گروهی کارکنان')) return { added: 0, skipped: 0, errors: [], summary: 'دسترسی لازم را ندارید.' };
   const text = String(rawText ?? '').replace(/^\uFEFF/, '');
   const lines = text.split(/\r?\n/).filter((line) => line.trim() !== '');
   const outcome = { added: 0, skipped: 0, errors: [], summary: '' };
@@ -4154,6 +4202,7 @@ function computeMonthlyPayroll() {
   }
   renderPayrollSummary();
   renderPayrollTable();
+  logActivity('payroll', 'COMPUTE', `محاسبه حقوق ${periodLabel(period)} برای ${rows.length} کارمند`);
   showToast('حقوق ماهانه محاسبه شد');
 }
 
@@ -4513,6 +4562,7 @@ function computeArrears() {
   arrearsState = { ...arrearsState, employeeId: employee.id, from, to, rows };
   renderArrearsSummary(employee);
   renderArrearsTable(employee);
+  logActivity('arrears', 'COMPUTE', `محاسبه معوقات ${employee.firstName} ${employee.lastName} از ${periodLabel(from)} تا ${periodLabel(to)}`);
   showToast('معوقات محاسبه شد');
 }
 
@@ -5286,6 +5336,7 @@ function buildReport() {
     message.textContent = `گزارش «${content.title}» با ${fmt(reportState.rows.length)} ردیف ساخته شد.`;
     message.dataset.state = 'ok';
   }
+  logActivity('reports', 'CREATE', `ساخت گزارش «${content.title}» با ${reportState.rows.length} ردیف`);
   sheet.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
 }
 
@@ -5418,6 +5469,689 @@ function renderCompareTable(jobs, criteria) {
     </tbody>`;
 }
 
+
+/* ======================= امنیت، نقش‌ها و گزارش فعالیت ======================= */
+
+const AUTH_KEY = 'mashaqel.auth.v1';
+const SESSION_KEY = 'mashaqel.session.v1';
+const SESSION_HOURS = 8;
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCK_MINUTES = 5;
+const ACTIVITY_LIMIT = 400;
+const PASSWORD_PATTERN = /^(?=.*[A-Za-z\u0600-\u06FF])(?=.*\d).{8,64}$/;
+const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,20}$/;
+
+const ROLE_LABELS = {
+  ADMIN: 'مدیر سامانه',
+  EXPERT: 'کارشناس طبقه‌بندی',
+  PAYROLL: 'کارشناس حقوق و دستمزد',
+  VIEWER: 'بازدیدکننده',
+};
+
+const ROLE_MODULES = {
+  ADMIN: ['dashboard', 'workshops', 'org', 'jobs', 'job-profile', 'evaluation', 'group', 'employees', 'payroll', 'arrears', 'reports', 'settings', 'users'],
+  EXPERT: ['dashboard', 'workshops', 'org', 'jobs', 'job-profile', 'evaluation', 'group', 'reports', 'settings'],
+  PAYROLL: ['dashboard', 'employees', 'payroll', 'arrears', 'reports', 'settings'],
+  VIEWER: ['dashboard', 'jobs', 'job-profile', 'group', 'reports'],
+};
+
+const ROLE_WRITE = {
+  ADMIN: ['workshops', 'org', 'jobs', 'evaluation', 'approval', 'employees', 'payroll', 'arrears', 'reports', 'settings', 'users'],
+  EXPERT: ['org', 'jobs', 'evaluation', 'approval', 'reports'],
+  PAYROLL: ['employees', 'payroll', 'arrears', 'reports'],
+  VIEWER: [],
+};
+
+const ACTIVITY_ACTION_LABELS = {
+  CREATE: 'ایجاد',
+  UPDATE: 'ویرایش',
+  DELETE: 'حذف',
+  LOGIN: 'ورود',
+  LOGOUT: 'خروج',
+  APPROVE: 'تأیید',
+  REOPEN: 'بازگشت به انتظار تأیید',
+  COMPUTE: 'محاسبه',
+  EXPORT: 'خروجی',
+  IMPORT: 'ورود گروهی',
+  BACKUP: 'پشتیبان‌گیری',
+  RESTORE: 'بازیابی',
+  CLEAR: 'پاک‌سازی',
+  DENIED: 'رد دسترسی',
+  SETUP: 'راه‌اندازی',
+  PROMOTE: 'ارتقا/تغییر شغل',
+};
+
+const MODULE_LABELS = {
+  security: 'امنیت',
+  workshops: 'کارگاه‌ها',
+  org: 'ساختار سازمانی',
+  jobs: 'بانک مشاغل',
+  approval: 'تأیید گروه',
+  employees: 'کارکنان',
+  payroll: 'حقوق ماهانه',
+  arrears: 'معوقات',
+  reports: 'گزارش‌ها',
+  settings: 'تنظیمات',
+  users: 'کاربران',
+};
+
+const authState = { user: null };
+let activityFilter = '';
+
+function webcrypto() {
+  return (typeof crypto !== 'undefined' ? crypto : globalThis.crypto) ?? null;
+}
+
+function bytesToHex(bytes) {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToBytes(hex) {
+  const bytes = new Uint8Array(Math.floor(hex.length / 2));
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function randomHex(size = 16) {
+  const bytes = new Uint8Array(size);
+  const source = webcrypto();
+  if (source?.getRandomValues) source.getRandomValues(bytes);
+  else for (let index = 0; index < size; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  return bytesToHex(bytes);
+}
+
+async function hashPassword(password, saltHex, iterations = 60000) {
+  const source = webcrypto();
+  if (!source?.subtle) throw new Error('رمزنگاری مرورگر در دسترس نیست؛ از مرورگر به‌روز استفاده کنید.');
+  const encoder = new TextEncoder();
+  const keyMaterial = await source.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await source.subtle.deriveBits(
+    { name: 'PBKDF2', salt: hexToBytes(saltHex), iterations, hash: 'SHA-256' },
+    keyMaterial,
+    256,
+  );
+  return bytesToHex(new Uint8Array(bits));
+}
+
+function readAuth() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(AUTH_KEY) ?? 'null');
+    return { users: Array.isArray(parsed?.users) ? parsed.users : [] };
+  } catch {
+    return { users: [] };
+  }
+}
+
+function writeAuth(auth) {
+  localStorage.setItem(AUTH_KEY, JSON.stringify({ users: auth.users ?? [] }));
+}
+
+function authUsers() {
+  return readAuth().users;
+}
+
+function readSession() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SESSION_KEY) ?? 'null');
+    if (!parsed?.userId) return null;
+    if (new Date(parsed.expiresAt).getTime() < Date.now()) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(user) {
+  const expiresAt = new Date(Date.now() + SESSION_HOURS * 3600 * 1000).toISOString();
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id, expiresAt, issuedAt: new Date().toISOString() }));
+}
+
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+  authState.user = null;
+}
+
+function currentUser() {
+  if (authState.user) return authState.user;
+  const session = readSession();
+  if (!session) return null;
+  const user = authUsers().find((row) => row.id === session.userId);
+  if (!user || user.active === false) return null;
+  authState.user = user;
+  return user;
+}
+
+function currentRole() {
+  return currentUser()?.role ?? null;
+}
+
+function allowedWorkshopIds() {
+  const user = currentUser();
+  return Array.isArray(user?.workshopIds) ? user.workshopIds : [];
+}
+
+function isWorkshopAllowed(workshopId) {
+  const ids = allowedWorkshopIds();
+  if (ids.length === 0) return true;
+  return ids.includes(workshopId);
+}
+
+function canAccessModule(module) {
+  const modules = ROLE_MODULES[currentRole()] ?? [];
+  return modules.includes(module);
+}
+
+function canWrite(module) {
+  const modules = ROLE_WRITE[currentRole()] ?? [];
+  return modules.includes(module);
+}
+
+function logActivity(module, action, detail = '', extra = {}) {
+  const user = currentUser();
+  const entry = {
+    at: new Date().toISOString(),
+    userId: user?.id ?? extra.userId ?? null,
+    username: user?.username ?? extra.username ?? 'system',
+    fullName: user?.fullName ?? extra.fullName ?? 'سیستم',
+    role: user?.role ?? extra.role ?? null,
+    module,
+    action,
+    detail,
+    workshopId: state.store.activeWorkshopId ?? null,
+  };
+  state.store = { ...state.store, activityLog: [...(state.store.activityLog ?? []), entry].slice(-ACTIVITY_LIMIT) };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.store));
+  } catch {
+    /* ذخیره‌سازی محلی در دسترس نیست */
+  }
+  renderActivityLog();
+}
+
+function ensureWrite(module, label = '') {
+  if (canWrite(module)) return true;
+  showToast('دسترسی لازم برای این عملیات را ندارید.');
+  logActivity(module, 'DENIED', label || `تلاش برای تغییر در ${MODULE_LABELS[module] ?? module}`);
+  return false;
+}
+
+function ensureAdmin(label = '') {
+  if (currentRole() === 'ADMIN') return true;
+  showToast('این عملیات فقط برای مدیر سامانه مجاز است.');
+  logActivity('security', 'DENIED', label || 'عملیات مدیریتی');
+  return false;
+}
+
+function showAuthGate(mode) {
+  const gate = document.getElementById('auth-gate');
+  if (!gate) return;
+  const users = authUsers();
+  const setup = document.getElementById('auth-setup');
+  const login = document.getElementById('auth-login');
+  const wantsSetup = mode === 'setup' || users.length === 0;
+  gate.hidden = false;
+  document.body.classList.add('is-auth');
+  if (setup) setup.hidden = !wantsSetup;
+  if (login) login.hidden = wantsSetup;
+}
+
+function hideAuthGate() {
+  const gate = document.getElementById('auth-gate');
+  if (gate) gate.hidden = true;
+  document.body.classList.remove('is-auth');
+}
+
+function bindAuthForms() {
+  const setupForm = document.getElementById('auth-setup');
+  if (setupForm) {
+    setupForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await createFirstAdmin();
+    });
+  }
+  const loginForm = document.getElementById('auth-login');
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await loginWithForm();
+    });
+  }
+  const logout = document.getElementById('logout-btn');
+  if (logout) logout.addEventListener('click', () => logoutCurrentUser());
+}
+
+async function createFirstAdmin() {
+  const message = document.getElementById('auth-setup-msg');
+  const name = document.getElementById('au-name').value.trim();
+  const username = document.getElementById('au-username').value.trim();
+  const password = document.getElementById('au-password').value;
+  const confirm = document.getElementById('au-password2').value;
+  const problems = [];
+  if (!name) problems.push('نام و نام خانوادگی الزامی است.');
+  if (!USERNAME_PATTERN.test(username)) problems.push('نام کاربری باید ۳ تا ۲۰ نویسه لاتین، رقم، نقطه، خط تیره یا زیرخط باشد.');
+  if (!PASSWORD_PATTERN.test(password)) problems.push('رمز عبور حداقل ۸ نویسه و شامل حرف و رقم باشد.');
+  if (password !== confirm) problems.push('تکرار رمز عبور مطابقت ندارد.');
+  if (readAuth().users.length > 0) problems.push('حساب مدیر قبلاً ساخته شده است.');
+  if (problems.length > 0) {
+    if (message) message.textContent = problems.join(' ');
+    return;
+  }
+  try {
+    const salt = randomHex(16);
+    const hash = await hashPassword(password, salt);
+    const user = {
+      id: newId('user'),
+      fullName: name,
+      username,
+      role: 'ADMIN',
+      workshopIds: [],
+      active: true,
+      password: { salt, hash, iterations: 60000, algo: 'PBKDF2-SHA256' },
+      createdAt: new Date().toISOString(),
+      lastLoginAt: null,
+      failedAttempts: 0,
+      lockedUntil: null,
+    };
+    writeAuth({ users: [user] });
+    const users = readAuth().users;
+    writeAuth({ users });
+    writeSession(user);
+    authState.user = user;
+    hideAuthGate();
+    startApp();
+    logActivity('security', 'SETUP', `ساخت حساب مدیر سامانه: ${username}`);
+    if (message) message.textContent = '';
+  } catch (error) {
+    if (message) message.textContent = `ساخت حساب ناموفق بود: ${error.message}`;
+  }
+}
+
+async function loginWithForm() {
+  const message = document.getElementById('auth-login-msg');
+  const username = document.getElementById('al-username').value.trim();
+  const password = document.getElementById('al-password').value;
+  const users = authUsers();
+  const user = users.find((row) => row.username.toLowerCase() === username.toLowerCase());
+  const fail = (text) => {
+    if (message) message.textContent = text;
+  };
+  if (!user) {
+    fail('نام کاربری یا رمز عبور نادرست است.');
+    logActivity('security', 'DENIED', `تلاش ورود ناموفق با نام کاربری «${username}»`, { username });
+    return;
+  }
+  if (user.active === false) {
+    fail('این حساب غیرفعال شده است. با مدیر سامانه تماس بگیرید.');
+    logActivity('security', 'DENIED', `تلاش ورود به حساب غیرفعال «${username}»`, { username, userId: user.id });
+    return;
+  }
+  if (user.lockedUntil && new Date(user.lockedUntil).getTime() > Date.now()) {
+    fail('حساب به دلیل تلاش‌های ناموفق موقتاً قفل شده است؛ چند دقیقه بعد تلاش کنید.');
+    return;
+  }
+  try {
+    const hash = await hashPassword(password, user.password.salt, user.password.iterations);
+    if (hash !== user.password.hash) {
+      const failedAttempts = Number(user.failedAttempts ?? 0) + 1;
+      const lockedUntil = failedAttempts >= MAX_LOGIN_ATTEMPTS
+        ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000).toISOString()
+        : null;
+      writeAuth({ users: users.map((row) => (row.id === user.id ? { ...row, failedAttempts, lockedUntil } : row)) });
+      fail(
+        lockedUntil
+          ? `رمز نادرست است؛ حساب برای ${fmt(LOCK_MINUTES)} دقیقه قفل شد.`
+          : `نام کاربری یا رمز عبور نادرست است. (${fmt(failedAttempts)} از ${fmt(MAX_LOGIN_ATTEMPTS)})`,
+      );
+      logActivity('security', 'DENIED', `رمز نادرست برای «${username}»`, { username, userId: user.id });
+      return;
+    }
+    const updated = { ...user, failedAttempts: 0, lockedUntil: null, lastLoginAt: new Date().toISOString() };
+    writeAuth({ users: users.map((row) => (row.id === user.id ? updated : row)) });
+    authState.user = updated;
+    writeSession(updated);
+    hideAuthGate();
+    startApp();
+    document.getElementById('al-password').value = '';
+    if (message) message.textContent = '';
+    logActivity('security', 'LOGIN', `ورود موفق ${updated.fullName} (${ROLE_LABELS[updated.role]})`);
+    applyAccessControl();
+    showToast(`خوش آمدید، ${updated.fullName}`);
+  } catch (error) {
+    fail(`ورود ناموفق بود: ${error.message}`);
+  }
+}
+
+function logoutCurrentUser() {
+  const user = currentUser();
+  if (user) logActivity('security', 'LOGOUT', `خروج ${user.fullName}`);
+  clearSession();
+  applyAccessControl();
+  showAuthGate('login');
+  const chip = document.getElementById('user-chip');
+  if (chip) chip.textContent = '';
+  showToast('از حساب خارج شدید');
+}
+
+function refreshScopedViews() {
+  if (!state.started) return;
+  renderWorkshopPicker();
+  renderWorkshopTable();
+  renderJobsView();
+  renderEmployeesView();
+  renderDashboard();
+  renderEvalJobOptions();
+  renderGroupJobsComparison();
+  renderOrgView();
+}
+
+function applyAccessControl() {
+  const role = currentRole();
+  const scoped = state.store.workshops.filter((row) => isWorkshopAllowed(row.id));
+  if (state.store.activeWorkshopId && !scoped.some((row) => row.id === state.store.activeWorkshopId)) {
+    state.store = { ...state.store, activeWorkshopId: scoped[0]?.id ?? null };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.store));
+    } catch {
+      /* ذخیره‌سازی محلی در دسترس نیست */
+    }
+  }
+  const modules = ROLE_MODULES[role] ?? [];
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    const route = item.dataset.route;
+    const allowed = modules.includes(route);
+    if (!allowed) {
+      item.disabled = true;
+      item.setAttribute('title', `نقش «${ROLE_LABELS[role] ?? role}» به این ماژول دسترسی ندارد`);
+    } else {
+      item.disabled = false;
+      item.removeAttribute('title');
+    }
+  });
+  const user = currentUser();
+  const chip = document.getElementById('user-chip');
+  if (chip && user) chip.textContent = `${user.fullName} — ${ROLE_LABELS[user.role] ?? user.role}`;
+  document.body.classList.toggle('is-readonly', (ROLE_WRITE[role] ?? []).length === 0);
+  if (state.started) refreshScopedViews();
+}
+
+function applyRouteAccess(route) {
+  if (!currentUser()) return;
+  if (route !== 'job-profile' && !canAccessModule(route)) {
+    showToast('دسترسی به این ماژول برای نقش شما مجاز نیست.');
+    const target = ROLE_MODULES[currentRole()]?.[0] ?? 'dashboard';
+    if (route !== target) navigate(target);
+  }
+}
+
+/* --------------------------- گزارش فعالیت --------------------------- */
+
+function activityRows() {
+  const search = activityFilter.toLowerCase();
+  const rows = [...(state.store.activityLog ?? [])].reverse();
+  if (!search) return rows;
+  return rows.filter((row) =>
+    `${row.username} ${row.fullName} ${row.module} ${row.action} ${row.detail}`.toLowerCase().includes(search),
+  );
+}
+
+function renderActivityLog() {
+  const table = document.getElementById('activity-table');
+  if (!table) return;
+  const counter = document.getElementById('activity-count');
+  const rows = activityRows().slice(0, 200);
+  if (counter) counter.textContent = `${fmt(rows.length)} رویداد`;
+  if (rows.length === 0) {
+    table.innerHTML = '<tbody><tr><td><div class="empty-state">رویدادی ثبت نشده است.</div></td></tr></tbody>';
+    return;
+  }
+  table.innerHTML = `
+    <thead><tr><th>زمان</th><th>کاربر</th><th>نقش</th><th>ماژول</th><th>اقدام</th><th>جزئیات</th></tr></thead>
+    <tbody>
+      ${rows
+        .map(
+          (row) => `<tr>
+            <td class="small">${escapeHtml(localizeDigits(new Date(row.at).toLocaleString('fa-IR')))}</td>
+            <td>${escapeHtml(row.fullName)}<div class="small muted" dir="ltr">${escapeHtml(row.username)}</div></td>
+            <td>${escapeHtml(ROLE_LABELS[row.role] ?? row.role ?? '—')}</td>
+            <td>${escapeHtml(MODULE_LABELS[row.module] ?? row.module ?? '—')}</td>
+            <td>${escapeHtml(ACTIVITY_ACTION_LABELS[row.action] ?? row.action ?? '—')}</td>
+            <td class="small">${escapeHtml(row.detail ?? '')}</td>
+          </tr>`,
+        )
+        .join('')}
+    </tbody>`;
+}
+
+function exportActivityCsv() {
+  const rows = activityRows();
+  if (rows.length === 0) {
+    showToast('رویدادی برای خروجی وجود ندارد.');
+    return false;
+  }
+  const lines = [
+    ['at', 'username', 'fullName', 'role', 'module', 'action', 'detail', 'workshopId'].join(','),
+    ...rows.map((row) =>
+      [row.at, row.username, row.fullName, row.role, row.module, row.action, row.detail, row.workshopId]
+        .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
+        .join(','),
+    ),
+  ];
+  const ok = downloadTextFile('activity-log.csv', lines.join('\r\n'), 'text/csv;charset=utf-8');
+  if (ok) {
+    logActivity('security', 'EXPORT', 'خروجی گزارش فعالیت');
+    showToast('گزارش فعالیت خروجی گرفته شد');
+  }
+  return ok;
+}
+
+/* ---------------------------- کاربران ---------------------------- */
+
+function initUsers() {
+  const newButton = document.getElementById('user-new');
+  if (newButton) newButton.addEventListener('click', () => openUserForm(null));
+  const form = document.getElementById('user-form');
+  if (form) {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      saveUserFromForm();
+    });
+  }
+  for (const id of ['user-cancel', 'user-cancel-2']) {
+    const button = document.getElementById(id);
+    if (button) button.addEventListener('click', () => closeUserForm());
+  }
+  const table = document.getElementById('users-table');
+  if (table) {
+    table.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-user-action]');
+      if (!button) return;
+      const user = authUsers().find((row) => row.id === button.dataset.id);
+      if (!user) return;
+      if (button.dataset.userAction === 'edit') openUserForm(user);
+      if (button.dataset.userAction === 'delete') deleteUser(user);
+    });
+  }
+  const exportButton = document.getElementById('activity-export');
+  if (exportButton) exportButton.addEventListener('click', () => exportActivityCsv());
+  const refresh = document.getElementById('activity-refresh');
+  if (refresh) refresh.addEventListener('click', () => renderActivityLog());
+  const search = document.getElementById('activity-search');
+  if (search) {
+    search.addEventListener('input', () => {
+      activityFilter = search.value.trim();
+      renderActivityLog();
+    });
+  }
+  renderUsersView();
+}
+
+function renderUsersView() {
+  renderUsersTable();
+  renderActivityLog();
+}
+
+function renderUsersTable() {
+  const table = document.getElementById('users-table');
+  if (!table) return;
+  const users = authUsers();
+  const counter = document.getElementById('users-count');
+  if (counter) counter.textContent = `${fmt(users.length)} کاربر`;
+  if (users.length === 0) {
+    table.innerHTML = '<tbody><tr><td><div class="empty-state">کاربری ثبت نشده است.</div></td></tr></tbody>';
+    return;
+  }
+  const me = currentUser();
+  table.innerHTML = `
+    <thead><tr><th>نام</th><th>نام کاربری</th><th>نقش</th><th>کارگاه‌های مجاز</th><th>وضعیت</th><th>آخرین ورود</th><th>عملیات</th></tr></thead>
+    <tbody>
+      ${users
+        .map((user) => {
+          const scope = (user.workshopIds ?? []).length === 0
+            ? 'همه کارگاه‌ها'
+            : user.workshopIds.map((id) => state.store.workshops.find((row) => row.id === id)?.workshopName ?? id).join('، ');
+          return `<tr>
+            <td>${escapeHtml(user.fullName)}${me?.id === user.id ? ' <span class="chip st-1">شما</span>' : ''}</td>
+            <td dir="ltr">${escapeHtml(user.username)}</td>
+            <td>${escapeHtml(ROLE_LABELS[user.role] ?? user.role)}</td>
+            <td class="small">${escapeHtml(scope)}</td>
+            <td>${user.active === false ? '<span class="chip neutral">غیرفعال</span>' : '<span class="chip st-1">فعال</span>'}</td>
+            <td class="small">${user.lastLoginAt ? escapeHtml(localizeDigits(new Date(user.lastLoginAt).toLocaleString('fa-IR'))) : '—'}</td>
+            <td class="actions-cell">
+              <button type="button" class="icon-btn" data-user-action="edit" data-id="${escapeHtml(user.id)}" title="ویرایش">✎</button>
+              <button type="button" class="icon-btn" data-user-action="delete" data-id="${escapeHtml(user.id)}" title="حذف">✕</button>
+            </td>
+          </tr>`;
+        })
+        .join('')}
+    </tbody>`;
+}
+
+function openUserForm(user) {
+  if (!ensureAdmin('مدیریت کاربران')) return;
+  const form = document.getElementById('user-form');
+  if (!form) return;
+  form.hidden = false;
+  const title = document.getElementById('user-form-title');
+  if (title) title.textContent = user ? `ویرایش کاربر ${user.username}` : 'کاربر جدید';
+  setElementValue(document.getElementById('uf-id'), user?.id ?? '');
+  setElementValue(document.getElementById('uf-name'), user?.fullName ?? '');
+  setElementValue(document.getElementById('uf-username'), user?.username ?? '');
+  setElementValue(document.getElementById('uf-role'), user?.role ?? 'EXPERT');
+  setElementValue(document.getElementById('uf-active'), user?.active === false ? 'INACTIVE' : 'ACTIVE');
+  setElementValue(document.getElementById('uf-password'), '');
+  const workshops = document.getElementById('uf-workshops');
+  if (workshops) {
+    workshops.innerHTML = state.store.workshops
+      .map((workshop) => `<option value="${escapeHtml(workshop.id)}">${escapeHtml(workshop.workshopName)} — ${escapeHtml(workshop.workshopCode)}</option>`)
+      .join('');
+    const selected = new Set(user?.workshopIds ?? []);
+    for (const option of workshops.options ?? []) {
+      const isSelected = selected.has(option.getAttribute('value'));
+      option.selected = isSelected;
+      if (isSelected) option.setAttribute('selected', 'selected');
+    }
+  }
+  const error = document.getElementById('user-error');
+  if (error) error.textContent = '';
+  form.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+
+function closeUserForm() {
+  const form = document.getElementById('user-form');
+  if (form) form.hidden = true;
+  const error = document.getElementById('user-error');
+  if (error) error.textContent = '';
+}
+
+async function saveUserFromForm() {
+  if (!ensureAdmin('ذخیره کاربر')) return;
+  const errorTarget = document.getElementById('user-error');
+  const id = document.getElementById('uf-id').value;
+  const users = authUsers();
+  const existing = id ? users.find((row) => row.id === id) : null;
+  const fullName = document.getElementById('uf-name').value.trim();
+  const username = document.getElementById('uf-username').value.trim();
+  const role = selectValue(document.getElementById('uf-role'), 'EXPERT');
+  const active = selectValue(document.getElementById('uf-active'), 'ACTIVE') === 'ACTIVE';
+  const password = document.getElementById('uf-password').value;
+  const workshopsSelect = document.getElementById('uf-workshops');
+  const workshopIds = [...(workshopsSelect?.options ?? [])]
+    .filter((option) => option.selected || option.hasAttribute('selected'))
+    .map((option) => option.getAttribute('value'));
+
+  const problems = [];
+  if (!fullName) problems.push('نام و نام خانوادگی الزامی است.');
+  if (!USERNAME_PATTERN.test(username)) problems.push('نام کاربری باید ۳ تا ۲۰ نویسه لاتین، رقم، نقطه، خط تیره یا زیرخط باشد.');
+  if (users.some((row) => row.id !== existing?.id && row.username.toLowerCase() === username.toLowerCase())) {
+    problems.push('این نام کاربری قبلاً ثبت شده است.');
+  }
+  if (!existing && !PASSWORD_PATTERN.test(password)) problems.push('رمز عبور حداقل ۸ نویسه و شامل حرف و رقم باشد.');
+  if (existing && password && !PASSWORD_PATTERN.test(password)) problems.push('رمز جدید حداقل ۸ نویسه و شامل حرف و رقم باشد.');
+  if (!ROLE_LABELS[role]) problems.push('نقش انتخاب‌شده معتبر نیست.');
+  const admins = users.filter((row) => row.role === 'ADMIN' && row.active !== false);
+  if (existing?.role === 'ADMIN' && (role !== 'ADMIN' || !active) && admins.length <= 1) {
+    problems.push('حداقل یک مدیر فعال باید باقی بماند.');
+  }
+  if (problems.length > 0) {
+    if (errorTarget) errorTarget.textContent = problems.join(' ');
+    return;
+  }
+
+  const base = existing ?? {
+    id: newId('user'),
+    createdAt: new Date().toISOString(),
+    lastLoginAt: null,
+    failedAttempts: 0,
+    lockedUntil: null,
+    password: null,
+  };
+  let passwordField = base.password;
+  if (password || !existing) {
+    const salt = randomHex(16);
+    const hash = await hashPassword(password, salt);
+    passwordField = { salt, hash, iterations: 60000, algo: 'PBKDF2-SHA256' };
+  }
+  const user = {
+    ...base,
+    fullName,
+    username,
+    role,
+    active,
+    workshopIds,
+    password: passwordField,
+  };
+  const nextUsers = existing ? users.map((row) => (row.id === user.id ? user : row)) : [...users, user];
+  writeAuth({ users: nextUsers });
+  if (authState.user?.id === user.id) authState.user = user;
+  closeUserForm();
+  renderUsersTable();
+  logActivity('users', existing ? 'UPDATE' : 'CREATE', `${existing ? 'ویرایش' : 'ایجاد'} کاربر «${username}» با نقش ${ROLE_LABELS[role]}`);
+  showToast(existing ? 'کاربر به‌روزرسانی شد' : 'کاربر جدید ثبت شد');
+}
+
+function deleteUser(user) {
+  if (!ensureAdmin('حذف کاربر')) return;
+  const me = currentUser();
+  if (me?.id === user.id) {
+    showToast('حذف حساب جاری مجاز نیست.');
+    return;
+  }
+  const users = authUsers();
+  const admins = users.filter((row) => row.role === 'ADMIN' && row.active !== false);
+  if (user.role === 'ADMIN' && admins.length <= 1) {
+    showToast('حذف آخرین مدیر سامانه مجاز نیست.');
+    return;
+  }
+  const confirmed = typeof window.confirm === 'function' ? window.confirm(`حذف کاربر «${user.username}»؟`) : true;
+  if (!confirmed) return;
+  writeAuth({ users: users.filter((row) => row.id !== user.id) });
+  renderUsersTable();
+  logActivity('users', 'DELETE', `حذف کاربر «${user.username}»`);
+  showToast('کاربر حذف شد');
+}
+
 /* ================================== شروع ================================== */
 
 async function boot() {
@@ -5440,6 +6174,18 @@ async function boot() {
     return;
   }
 
+  bindAuthForms();
+  if (!currentUser()) {
+    showAuthGate();
+    return;
+  }
+  startApp();
+}
+
+function startApp() {
+  applyAccessControl();
+  if (state.started) return;
+  state.started = true;
   initWageRows();
   initRouter();
   initSubtabs();
@@ -5456,6 +6202,7 @@ async function boot() {
   initArrears();
   initReports();
   initSettings();
+  initUsers();
 
   const printButton = document.getElementById('print-btn');
   if (printButton) {
