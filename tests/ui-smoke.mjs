@@ -131,8 +131,8 @@ const setTextArea = (id, value) => {
 /* ------------------------------ پوسته و مسیریابی ------------------------------ */
 
 const navItems = [...document.querySelectorAll('.nav-item')];
-assert('منوی کناری: ۱۲ بخش', navItems.length === 12, String(navItems.length));
-assert('منوی کناری: ۱۲ آیتم در حالت اولیه', navItems.length === 12, String(navItems.length));
+assert('منوی کناری: ۱۳ بخش', navItems.length === 13, String(navItems.length));
+assert('منوی کناری: ۱۳ آیتم در حالت اولیه', navItems.length === 13, String(navItems.length));
 assert(
   'بخش «شناسنامه فرمول‌ها و اسناد قانونی» پنهان شده است',
   document.querySelector('#view-reference') === null && !document.body.innerHTML.includes('شناسنامه فرمول') && !document.body.innerHTML.includes('بانک قوانین'),
@@ -141,7 +141,7 @@ assert(
 
 assert('SSO: دکمه ورود سازمانی در حالت محلی پنهان است', document.querySelector('#sso-row')?.hidden === true && document.querySelector('#sso-login') !== null);
 assert('امنیت: صفحه راه‌اندازی اولیه', document.querySelector('#auth-gate')?.hidden === false && document.querySelector('#auth-setup')?.hidden === false);
-assert('امنیت: ورود تا تکمیل راه‌اندازی مسدود است', document.querySelector('#auth-gate')?.hidden === false && document.querySelectorAll('.nav-item').length === 12);
+assert('امنیت: ورود تا تکمیل راه‌اندازی مسدود است', document.querySelector('#auth-gate')?.hidden === false && document.querySelectorAll('.nav-item').length === 13);
 
 setField('au-name', 'مدیر نمونه');
 setField('au-username', 'admin');
@@ -150,7 +150,7 @@ setField('au-password2', 'Admin@1405');
 document.querySelector('#auth-setup').dispatchEvent(new window.Event('submit'));
 const setupDone = await waitFor(() => document.querySelector('#auth-gate')?.hidden === true);
 assert('امنیت: راه‌اندازی و ورود مدیر', setupDone);
-assert('امنیت: منوی کامل برای مدیر', [...document.querySelectorAll('.nav-item')].filter((item) => !item.disabled).length === 12, String([...document.querySelectorAll('.nav-item')].filter((item) => !item.disabled).length));
+assert('امنیت: منوی کامل برای مدیر', [...document.querySelectorAll('.nav-item')].filter((item) => !item.disabled).length === 13, String([...document.querySelectorAll('.nav-item')].filter((item) => !item.disabled).length));
 contains('امنیت: نشان کاربر', text('#user-chip'), 'مدیر نمونه');
 
 assert('داشبورد پیش‌فرض فعال است', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
@@ -161,6 +161,52 @@ assert('عنوان صفحه به‌روزرسانی شد', document.querySelecto
 
 click('.nav-item[data-route="dashboard"]');
 assert('بازگشت به داشبورد', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
+
+/* ------------------------------ آموزش سامانه ------------------------------ */
+
+const guideNav = document.querySelector('.nav-item[data-route="guide"]');
+assert('آموزش: آیتم منو موجود و فعال', guideNav !== null && guideNav.disabled === false);
+click('.nav-item[data-route="guide"]');
+assert('آموزش: مسیریابی', document.querySelector('#view-guide')?.classList.contains('is-active'));
+assert('آموزش: عنوان صفحه', document.querySelector('#page-title')?.textContent === 'آموزش سامانه', document.querySelector('#page-title')?.textContent);
+assert('آموزش: ۱۹ بخش', document.querySelectorAll('#guide-sections .guide-section').length === 19, String(document.querySelectorAll('#guide-sections .guide-section').length));
+assert('آموزش: فهرست موضوعی', document.querySelectorAll('#guide-toc .guide-chip').length === 19, String(document.querySelectorAll('#guide-toc .guide-chip').length));
+assert('آموزش: هر بخش گام دارد', [...document.querySelectorAll('#guide-sections .guide-steps')].every((list) => list.querySelectorAll('li').length >= 4));
+assert('آموزش: هر بخش خطاهای رایج دارد', [...document.querySelectorAll('#guide-sections .guide-errors')].every((list) => list.querySelectorAll('li').length >= 1));
+contains('آموزش: اطلاعات نسخه', text('#guide-meta'), 'نسخه سامانه');
+contains('آموزش: نقش کاربر', text('#guide-meta'), 'مدیر سامانه');
+contains('آموزش: راهنمای چاپ', text('#view-guide'), 'چاپ راهنما');
+contains('آموزش: موضوع حقوق', text('#view-guide'), 'محاسبات حقوق و دستمزد');
+contains('آموزش: موضوع معوقات', text('#view-guide'), 'مابه‌التفاوت');
+contains('آموزش: موضوع SSO', text('#view-guide'), 'ورود سازمانی');
+contains('آموزش: محدودیت مالیات', text('#view-guide'), 'پلکان مالیات ۱۴۰۵');
+
+const setGuideSearch = (value) => {
+  const input = document.querySelector('#guide-search');
+  input.setAttribute('value', value);
+  try {
+    input.value = value;
+  } catch {
+    /* linkedom */
+  }
+  input.dispatchEvent(new window.Event('input'));
+};
+
+setGuideSearch('کد ملی');
+assert('آموزش: جستجو نتیجه را محدود می‌کند', document.querySelectorAll('#guide-sections .guide-section:not([hidden])').length < 19 && document.querySelectorAll('#guide-sections .guide-section:not([hidden])').length >= 1, String(document.querySelectorAll('#guide-sections .guide-section:not([hidden])').length));
+contains('آموزش: شمارش جستجو', text('#guide-count'), 'مطابقت دارد');
+setGuideSearch('واژه‌ای که وجود ندارد');
+assert('آموزش: جستجوی بی‌نتیجه', document.querySelectorAll('#guide-sections .guide-section:not([hidden])').length === 0, String(document.querySelectorAll('#guide-sections .guide-section:not([hidden])').length));
+setGuideSearch('');
+assert('آموزش: بازگشت همه بخش‌ها', document.querySelectorAll('#guide-sections .guide-section:not([hidden])').length === 19, String(document.querySelectorAll('#guide-sections .guide-section:not([hidden])').length));
+
+setGuideSearch('چاپ');
+click('#guide-print');
+contains('آموزش: چاپ عمودی', document.querySelector('#print-page-style')?.textContent ?? '', 'portrait');
+assert('آموزش: پاک‌سازی فیلتر هنگام چاپ', selectValueOf('#guide-search') === '', selectValueOf('#guide-search'));
+assert('آموزش: نمایش همه بخش‌ها پس از چاپ', document.querySelectorAll('#guide-sections .guide-section:not([hidden])').length === 19);
+
+click('.nav-item[data-route="dashboard"]');
 
 /* --------------------------------- داشبورد --------------------------------- */
 
@@ -1179,7 +1225,7 @@ assert('امنیت: نقش بازدیدکننده فقط خواندنی', docume
 const viewerRoutes = enabledRoutes();
 assert(
   'امنیت: دسترسی ماژول‌های بازدیدکننده',
-  viewerRoutes.length === 4 && viewerRoutes.includes('dashboard') && viewerRoutes.includes('reports') && !viewerRoutes.includes('employees'),
+  viewerRoutes.length === 5 && viewerRoutes.includes('dashboard') && viewerRoutes.includes('guide') && viewerRoutes.includes('reports') && !viewerRoutes.includes('employees'),
   viewerRoutes.join(','),
 );
 assert('امنیت: آیتم کاربران برای بازدیدکننده غیرفعال', document.querySelector('.nav-item[data-route="users"]')?.disabled === true);
@@ -1187,6 +1233,10 @@ click('.nav-item[data-route="jobs"]');
 click('#job-new');
 assert('امنیت: بازدیدکننده نمی‌تواند شغل بسازد', document.querySelector('#job-form')?.hidden === true);
 contains('امنیت: پیام فقط‌خواندنی', text('#toast'), 'دسترسی لازم');
+
+click('.nav-item[data-route="guide"]');
+assert('امنیت: دسترسی بازدیدکننده به آموزش', document.querySelector('.nav-item[data-route="guide"]')?.disabled === false && document.querySelector('#view-guide')?.classList.contains('is-active'));
+contains('امنیت: نقش بازدیدکننده در آموزش', text('#guide-meta'), 'بازدیدکننده');
 
 logout();
 let lockedMessage = '';
