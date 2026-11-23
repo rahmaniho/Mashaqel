@@ -1566,6 +1566,120 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
+
+/* ------------------------------ گزارش‌ساز ------------------------------ */
+
+.report-sheet {
+  margin-top: 16px;
+  padding: 22px 24px;
+  background: #fff;
+  border: 1px solid var(--line, #e2e6ef);
+  border-radius: 14px;
+  box-shadow: 0 10px 26px rgba(11, 28, 58, 0.06);
+}
+
+.report-letterhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 3px double var(--gold-500);
+  margin-bottom: 14px;
+}
+
+.report-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.report-brand strong {
+  color: var(--navy-800);
+  font-size: 1.02rem;
+}
+
+.report-head-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-end;
+  font-size: 0.78rem;
+  color: var(--navy-700);
+}
+
+.report-head-meta strong {
+  color: var(--navy-800);
+  font-size: 0.95rem;
+}
+
+.report-subtitle {
+  margin-bottom: 10px;
+  color: var(--navy-700);
+  font-size: 0.85rem;
+}
+
+.report-section-title {
+  margin: 18px 0 8px;
+  color: var(--navy-800);
+  font-size: 0.92rem;
+}
+
+.report-table td {
+  vertical-align: top;
+}
+
+.report-footer {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line, #e2e6ef);
+  font-size: 0.72rem;
+  color: var(--muted, #6b7488);
+}
+
+.radar-ring {
+  fill: none;
+  stroke: #dde2ec;
+  stroke-width: 1;
+}
+
+.radar-axis {
+  stroke: #e6e9f0;
+  stroke-width: 1;
+}
+
+.radar-label {
+  font-size: 10px;
+  fill: #5b6478;
+}
+
+.radar-series {
+  stroke-width: 2;
+  fill-opacity: 0.16;
+}
+
+.cmp-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 0.78rem;
+}
+
+.cmp-legend-item i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-inline-end: 5px;
+}
+
+.cmp-head {
+  border-bottom: 3px solid var(--gold-500);
+  padding-bottom: 3px;
+}
+
 .approval-form {
   margin-top: 12px;
   background: #fbfcff;
@@ -1590,6 +1704,22 @@ textarea:focus {
 @media print {
   .no-print {
     display: none !important;
+  }
+  #rp-sheet.report-sheet {
+    display: block !important;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+  }
+  .report-letterhead {
+    break-inside: avoid;
+  }
+  .report-table {
+    break-inside: auto;
+  }
+  .report-table tr {
+    break-inside: avoid;
   }
   .profile {
     border: 0;

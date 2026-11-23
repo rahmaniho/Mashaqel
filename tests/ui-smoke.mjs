@@ -75,6 +75,20 @@ const selectValueOf = (selector) => {
   return selected?.getAttribute?.('value') ?? '';
 };
 
+const selectMulti = (selector, values) => {
+  const select = document.querySelector(selector);
+  const options = [...(select.options ?? [])];
+  for (const option of options) {
+    option.selected = false;
+    option.removeAttribute('selected');
+  }
+  const matches = options.filter((option) => values.map(String).includes(option.getAttribute('value')));
+  for (const option of matches) option.selected = true;
+  /* linkedom تنها یک گزینه را selected نگه می‌دارد؛ نشانه‌گذاری صفتی پس از همه انتخاب‌ها انجام می‌شود */
+  for (const option of matches) option.setAttribute('selected', 'selected');
+  select.dispatchEvent(new window.Event('change'));
+};
+
 const checks = [];
 const assert = (label, condition, detail = '') => checks.push({ label, ok: Boolean(condition), detail });
 const contains = (label, haystack, needle) => assert(label, haystack.includes(needle), needle);
@@ -83,7 +97,7 @@ const contains = (label, haystack, needle) => assert(label, haystack.includes(ne
 
 const navItems = [...document.querySelectorAll('.nav-item')];
 assert('منوی کناری: ۱۲ بخش', navItems.length === 12, String(navItems.length));
-assert('منوی کناری: ۱۰ بخش فعال', navItems.filter((item) => !item.disabled).length === 10, String(navItems.filter((item) => !item.disabled).length));
+assert('منوی کناری: ۱۱ بخش فعال', navItems.filter((item) => !item.disabled).length === 11, String(navItems.filter((item) => !item.disabled).length));
 assert(
   'بخش «شناسنامه فرمول‌ها و اسناد قانونی» پنهان شده است',
   document.querySelector('#view-reference') === null && !document.body.innerHTML.includes('شناسنامه فرمول') && !document.body.innerHTML.includes('بانک قوانین'),
@@ -748,6 +762,113 @@ try {
 }
 assert('معوقات: خروجی CSV بدون خطا', arrearsExportOk);
 assert('معوقات: چاپ موجود است', document.querySelector('#ar-print') !== null);
+
+
+/* --------------------------- فاز ۹: گزارش‌ساز --------------------------- */
+
+const reportsNav = document.querySelector('.nav-item[data-route="reports"]');
+assert('گزارش‌ها: آیتم منو فعال شد', reportsNav?.disabled === false && reportsNav?.querySelector('.nav-badge') === null);
+click('.nav-item[data-route="reports"]');
+assert('مسیریابی به گزارش‌ها', document.querySelector('#view-reports')?.classList.contains('is-active'));
+assert('گزارش‌ساز: ۱۲ نوع گزارش', document.querySelectorAll('#rp-type option').length === 12, String(document.querySelectorAll('#rp-type option').length));
+
+click('#rp-build');
+assert('گزارش: برگه ساخته شد', document.querySelector('#rp-sheet')?.hidden === false);
+contains('گزارش: سربرگ شرکت', text('#rp-letterhead'), 'شرکت نمونه صنعت');
+contains('گزارش: سربرگ کارگاه', text('#rp-letterhead'), 'کارگاه شماره یک');
+contains('گزارش: تاریخ گزارش', text('#rp-letterhead'), 'تاریخ گزارش');
+contains('گزارش: عنوان گزارش', text('#rp-letterhead'), 'فهرست مشاغل کارگاه');
+assert('گزارش مشاغل: دو ردیف', document.querySelectorAll('#rp-body tbody tr').length === 2, String(document.querySelectorAll('#rp-body tbody tr').length));
+
+setSelect('#rp-type', 'JOBS_EVALUATED');
+click('#rp-build');
+assert('گزارش مشاغل ارزیابی‌شده: یک ردیف', document.querySelectorAll('#rp-body tbody tr').length === 1, String(document.querySelectorAll('#rp-body tbody tr').length));
+contains('گزارش مشاغل ارزیابی‌شده: کد شغل', text('#rp-body'), 'J-2001');
+
+setSelect('#rp-type', 'GROUP_ASSIGNMENT');
+click('#rp-build');
+contains('گزارش گروه‌بندی: وضعیت رد', text('#rp-body'), 'رد شده');
+contains('گزارش گروه‌بندی: گروه پیشنهادی', text('#rp-body'), fa(12));
+
+setSelect('#rp-type', 'COMMITTEE');
+click('#rp-build');
+contains('صورت‌جلسه: تأیید کمیته', text('#rp-body'), 'تأیید کمیته');
+contains('صورت‌جلسه: شماره صورت‌جلسه', text('#rp-body'), '1405-COMM-12');
+assert('صورت‌جلسه: دو تصمیم', document.querySelectorAll('#rp-body tbody tr').length === 2, String(document.querySelectorAll('#rp-body tbody tr').length));
+
+setSelect('#rp-type', 'ORG');
+click('#rp-build');
+contains('گزارش ساختار: ریشه', text('#rp-body'), 'مدیریت عامل');
+contains('گزارش ساختار: خط مونتاژ', text('#rp-body'), 'خط مونتاژ');
+
+setSelect('#rp-type', 'EMPLOYEES');
+click('#rp-build');
+assert('گزارش کارکنان: سه ردیف', document.querySelectorAll('#rp-body tbody tr').length === 3, String(document.querySelectorAll('#rp-body tbody tr').length));
+contains('گزارش کارکنان: نام', text('#rp-body'), 'مریم احمدی');
+
+setSelect('#rp-type', 'EMPLOYEE_DOSSIER');
+setSelect('#rp-employee', employeeByCode('EMP-1001').id);
+click('#rp-build');
+contains('پرونده پرسنلی: نام', text('#rp-body'), 'مریم احمدی');
+contains('پرونده پرسنلی: تاریخچه', text('#rp-body'), 'تاریخچه ارتقا');
+contains('پرونده پرسنلی: دلیل ارتقا', text('#rp-body'), 'ارتقا مطابق صورت‌جلسه');
+
+setSelect('#rp-type', 'DISTRIBUTION');
+click('#rp-build');
+contains('گزارش توزیع: گروه ۱۴', text('#rp-body'), 'گروه ۱۴');
+contains('گزارش توزیع: واحد', text('#rp-body'), 'خط مونتاژ');
+
+setSelect('#rp-type', 'PAYROLL');
+setSelect('#rp-period', '1405-01');
+click('#rp-build');
+contains('گزارش حقوق: کد پرسنلی', text('#rp-body'), 'EMP-1001');
+contains('گزارش حقوق: جمع کل', text('#rp-body'), 'جمع کل');
+contains('گزارش حقوق: مزد شغل', text('#rp-body'), fa(expectedPayrollWage({ group: 14, years: 7, accumulated: 200000, period: '1405-01' }).monthlyJobWage));
+
+setSelect('#rp-type', 'ARREARS');
+click('#rp-build');
+contains('گزارش معوقات: عنوان', text('#rp-letterhead'), 'خلاصه معوقات دوره');
+contains('گزارش معوقات: مابه‌التفاوت', text('#rp-body'), 'مابه‌التفاوت');
+assert('گزارش معوقات: سه ماه + جمع', document.querySelectorAll('#rp-body tbody tr').length === 4, String(document.querySelectorAll('#rp-body tbody tr').length));
+
+setSelect('#rp-type', 'YEAR_COMPARE');
+click('#rp-build');
+assert('گزارش مقایسه سال: ۲۰ گروه', document.querySelectorAll('#rp-body tbody tr').length === 20, String(document.querySelectorAll('#rp-body tbody tr').length));
+contains('گزارش مقایسه سال: رشد', text('#rp-body'), '٪');
+
+setSelect('#rp-type', 'OVERVIEW');
+click('#rp-build');
+contains('گزارش جامع: عنوان', text('#rp-letterhead'), 'گزارش جامع کارگاه');
+contains('گزارش جامع: داده ناقص', text('#rp-body'), 'کارکنان بدون گروه شغلی');
+
+setSelect('#rp-type', 'JOBS_LIST');
+setSelect('#rp-unit', assemblyUnit.id);
+click('#rp-build');
+assert('گزارش با فیلتر واحد: یک ردیف', document.querySelectorAll('#rp-body tbody tr').length === 1, String(document.querySelectorAll('#rp-body tbody tr').length));
+setSelect('#rp-unit', '');
+
+let reportExportOk = true;
+try {
+  click('#rp-export');
+} catch {
+  reportExportOk = false;
+}
+assert('گزارش: خروجی CSV بدون خطا', reportExportOk);
+assert('گزارش: چاپ موجود است', document.querySelector('#rp-print') !== null);
+
+/* مقایسه مشاغل با ۱۰ معیار */
+const jobsForCompare = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs;
+selectMulti('#cmp-jobs', jobsForCompare.map((job) => job.id));
+click('#cmp-build');
+assert('مقایسه: دو چندضلعی رادار', document.querySelectorAll('#cmp-chart svg polygon.radar-series').length === 2, String(document.querySelectorAll('#cmp-chart svg polygon.radar-series').length));
+assert('مقایسه: ۱۰ معیار', document.querySelectorAll('#cmp-table tbody tr').length === 10, String(document.querySelectorAll('#cmp-table tbody tr').length));
+contains('مقایسه: معیار امتیاز کل', text('#cmp-table'), 'امتیاز کل');
+contains('مقایسه: راهنمای نمودار', text('#cmp-legend'), 'J-2001');
+contains('مقایسه: نرمال‌شده', text('#cmp-table'), '٪ از سقف');
+
+selectMulti('#cmp-jobs', [jobsForCompare[0].id]);
+click('#cmp-build');
+assert('مقایسه: حداقل دو شغل', text('#cmp-msg').includes('حداقل دو شغل'), text('#cmp-msg'));
 
 /* -------------------------- حقوق و دستمزد و ارقام -------------------------- */
 

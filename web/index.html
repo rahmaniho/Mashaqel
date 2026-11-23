@@ -63,8 +63,8 @@
           </button>
 
           <p class="nav-group-title">سامانه</p>
-          <button class="nav-item" data-route="reports" type="button" disabled title="فاز ۹ — گزارش‌ساز تخصصی">
-            <span class="nav-icon" aria-hidden="true">⎙</span><span>گزارش‌ها</span><span class="nav-badge">فاز ۹</span>
+          <button class="nav-item" data-route="reports" type="button">
+            <span class="nav-icon" aria-hidden="true">⎙</span><span>گزارش‌ها</span>
           </button>
           <button class="nav-item" data-route="settings" type="button">
             <span class="nav-icon" aria-hidden="true">⚙</span><span>تنظیمات</span>
@@ -75,7 +75,7 @@
         </nav>
 
         <div class="sidebar-footer">
-          <p class="sidebar-note">نسخه <strong>۲٫۶</strong> — فاز ۸ (حقوق ماهانه و معوقات)</p>
+          <p class="sidebar-note">نسخه <strong>۲٫۷</strong> — فاز ۹ (گزارش‌ساز)</p>
           <p class="sidebar-note small">تمام مبالغ به ریال ایران (IRR)</p>
         </div>
       </aside>
@@ -1001,6 +1001,82 @@
             </div>
             <div id="eval-form" class="eval-grid"></div>
             <div id="eval-results" class="results-col"></div>
+          </section>
+
+
+          <!-- ------------------------------- گزارش‌ها ------------------------------- -->
+          <section id="view-reports" class="view">
+            <div class="panel-head no-print">
+              <div>
+                <h2>گزارش‌ساز سامانه</h2>
+                <p class="muted">
+                  ۱۲ گزارش رسمی با سربرگ کارگاه و تاریخ شمسی؛ خروجی PDF از دیالوگ چاپ و خروجی Excel (CSV).
+                  همه اعداد مستقیماً از بانک مشاغل، ساختار سازمانی، کارکنان، حقوق ماهانه و معوقات خوانده می‌شوند.
+                </p>
+              </div>
+              <div class="head-actions">
+                <button class="ghost-btn" type="button" id="rp-export">خروجی Excel (CSV)</button>
+                <button class="ghost-btn" type="button" id="rp-print">چاپ / PDF</button>
+              </div>
+            </div>
+
+            <div class="card no-print" id="rp-controls">
+              <div class="field-grid compact">
+                <label class="field"><span>نوع گزارش</span><select id="rp-type"></select></label>
+                <label class="field"><span>دوره (حقوق و معوقات)</span><select id="rp-period"></select></label>
+                <label class="field"><span>کارمند (پرونده پرسنلی)</span><select id="rp-employee"></select></label>
+                <label class="field"><span>فیلتر واحد سازمانی</span><select id="rp-unit"></select></label>
+              </div>
+              <div class="form-actions">
+                <button class="primary-btn" type="button" id="rp-build">ساخت گزارش</button>
+                <span class="form-error" id="rp-msg" role="alert"></span>
+              </div>
+            </div>
+
+            <div class="card" id="rp-empty-workshop" hidden>
+              <div class="empty-state">
+                برای ساخت گزارش، ابتدا کارگاه را تعریف و انتخاب کنید.
+                <div style="margin-top: 10px"><button class="primary-btn" type="button" data-route="workshops">رفتن به مدیریت کارگاه‌ها</button></div>
+              </div>
+            </div>
+
+            <article class="report-sheet" id="rp-sheet" hidden>
+              <header class="report-letterhead" id="rp-letterhead"></header>
+              <div class="report-body" id="rp-body"></div>
+              <footer class="report-footer" id="rp-footer"></footer>
+            </article>
+
+            <div class="card no-print" id="rp-compare">
+              <div class="card-head">
+                <div>
+                  <h3>مقایسه مشاغل — ۱۰ معیار</h3>
+                  <p class="muted small">
+                    ۲ تا ۵ شغل را انتخاب کنید؛ نمودار رادار و جدول مقایسه با مقادیر واقعی و نرمال‌شده (۰–۱۰۰) و اختلاف بیشترین/کمترین ساخته می‌شود.
+                  </p>
+                </div>
+              </div>
+              <label class="field field-wide">
+                <span>مشاغل (چندانتخابی)</span>
+                <select id="cmp-jobs" multiple size="6"></select>
+              </label>
+              <div class="form-actions">
+                <button class="primary-btn" type="button" id="cmp-build">مقایسه مشاغل</button>
+                <span class="form-error" id="cmp-msg" role="alert"></span>
+              </div>
+              <div class="layout">
+                <div class="card" id="cmp-chart-card">
+                  <h4>نمودار رادار</h4>
+                  <div id="cmp-chart"></div>
+                  <div id="cmp-legend" class="cmp-legend"></div>
+                </div>
+                <div class="card" id="cmp-table-card">
+                  <h4>جدول مقایسه معیارها</h4>
+                  <div class="table-wrap">
+                    <table class="data-table" id="cmp-table"></table>
+                  </div>
+                </div>
+              </div>
+            </div>
           </section>
 
           <!-- ------------------------------- تنظیمات ------------------------------- -->
