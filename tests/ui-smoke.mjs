@@ -46,14 +46,24 @@ const text = (selector) =>
 
 const fa = (value) => new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 0 }).format(value);
 const en = (value) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
-const click = (selector) => document.querySelector(selector).dispatchEvent(new window.Event('click'));
+const click = (selector) =>
+  document.querySelector(selector).dispatchEvent(new window.Event('click', { bubbles: true }));
+const selectOption = (select, value) => {
+  const options = [...(select.options ?? [])];
+  const match = options.find((option) => option.getAttribute('value') === String(value));
+  for (const option of options) {
+    option.selected = false;
+    option.removeAttribute('selected');
+  }
+  if (match) {
+    match.selected = true;
+    match.setAttribute('selected', 'selected');
+  }
+};
+
 const setSelect = (selector, value) => {
   const select = document.querySelector(selector);
-  for (const option of [...(select.options ?? [])]) {
-    option.selected = option.getAttribute('value') === value;
-    if (option.selected) option.setAttribute('selected', 'selected');
-    else option.removeAttribute('selected');
-  }
+  selectOption(select, value);
   select.dispatchEvent(new window.Event('change'));
 };
 
@@ -65,7 +75,7 @@ const contains = (label, haystack, needle) => assert(label, haystack.includes(ne
 
 const navItems = [...document.querySelectorAll('.nav-item')];
 assert('منوی کناری: ۱۲ بخش', navItems.length === 12, String(navItems.length));
-assert('منوی کناری: ۶ بخش فعال', navItems.filter((item) => !item.disabled).length === 6, String(navItems.filter((item) => !item.disabled).length));
+assert('منوی کناری: ۷ بخش فعال', navItems.filter((item) => !item.disabled).length === 7, String(navItems.filter((item) => !item.disabled).length));
 assert(
   'بخش «شناسنامه فرمول‌ها و اسناد قانونی» پنهان شده است',
   document.querySelector('#view-reference') === null && !document.body.innerHTML.includes('شناسنامه فرمول') && !document.body.innerHTML.includes('بانک قوانین'),
@@ -95,12 +105,8 @@ assert('جدول کارگاه‌ها خالی است', text('#workshop-table').i
 
 const setField = (id, value) => {
   const input = document.querySelector(`#${id}`);
-  if (input.tagName === 'SELECT') {
-    for (const option of [...(input.options ?? [])]) {
-      option.selected = option.getAttribute('value') === value;
-      if (option.selected) option.setAttribute('selected', 'selected');
-      else option.removeAttribute('selected');
-    }
+  if (input.options) {
+    selectOption(input, value);
     input.dispatchEvent(new window.Event('change'));
     return;
   }
@@ -110,6 +116,17 @@ const setField = (id, value) => {
   } catch {
     /* linkedom */
   }
+};
+
+const setInput = (id, value) => {
+  const input = document.querySelector(`#${id}`);
+  input.setAttribute('value', String(value));
+  try {
+    input.value = String(value);
+  } catch {
+    /* linkedom */
+  }
+  input.dispatchEvent(new window.Event('input'));
 };
 
 const submitWorkshop = (values) => {
@@ -143,6 +160,108 @@ submitWorkshop({
 assert('اعتبارسنجی: کد تکراری رد شد', text('#workshop-error').includes('قبلاً ثبت شده'), text('#workshop-error'));
 assert('اعتبارسنجی: کارگاه دوم ثبت نشد', document.querySelectorAll('#workshop-table tbody tr').length === 1);
 click('#workshop-cancel');
+
+
+/* -------------------------------- بانک مشاغل -------------------------------- */
+
+click('.nav-item[data-route="jobs"]');
+assert('مسیریابی به بانک مشاغل', document.querySelector('#view-jobs')?.classList.contains('is-active'));
+assert('بانک مشاغل: پیام خالی', text('#jobs-table').includes('هنوز شغلی ثبت نشده'));
+
+const submitJob = (values) => {
+  for (const [id, value] of Object.entries(values)) setField(id, value);
+  document.querySelector('#job-form').dispatchEvent(new window.Event('submit'));
+};
+
+submitJob({
+  'jf-code': 'J-1001',
+  'jf-title': 'جوشکار تأسیسات',
+  'jf-title-en': 'Welder',
+  'jf-unit': 'تولید — مونتاژ',
+  'jf-headcount': 4,
+  'jf-objective': 'اتصال قطعات فلزی مطابق نقشه و استاندارد جوش',
+  'jf-duties': 'جوشکاری قطعات بر اساس نقشه\nبازرسی بصری درز جوش',
+  'jf-responsibilities': 'کیفیت اتصال و رعایت ایمنی',
+  'jf-education': 'دیپلم',
+  'jf-experience': 2,
+});
+await new Promise((resolve) => setTimeout(resolve, 20));
+
+assert('ثبت شغل: یک ردیف', document.querySelectorAll('#jobs-table tbody tr').length === 1, String(document.querySelectorAll('#jobs-table tbody tr').length));
+assert('ثبت شغل: عنوان در جدول', text('#jobs-table').includes('جوشکار تأسیسات'));
+assert('ثبت شغل: شمارنده', text('#jobs-count').includes('۱ شغل'), text('#jobs-count'));
+assert('ذخیره‌سازی شغل', (localStorage.getItem('mashaqel.state.v2') ?? '').includes('J-1001'));
+assert('فیلتر واحد سازمانی', (document.querySelector('#jobs-filter-unit')?.innerHTML ?? '').includes('تولید — مونتاژ'));
+
+submitJob({
+  'jf-code': 'J-1001',
+  'jf-title': 'شغل تکراری',
+  'jf-unit': 'تولید',
+  'jf-objective': 'نمونه',
+  'jf-duties': 'نمونه',
+});
+assert('اعتبارسنجی شغل: کد تکراری رد شد', text('#job-error').includes('قبلاً ثبت شده'), text('#job-error'));
+assert('اعتبارسنجی شغل: شغل دوم ثبت نشد', document.querySelectorAll('#jobs-table tbody tr').length === 1);
+click('#job-cancel-2');
+
+click('#jobs-table button[data-action="copy"]');
+assert('تکثیر شغل', document.querySelectorAll('#jobs-table tbody tr').length === 2, String(document.querySelectorAll('#jobs-table tbody tr').length));
+assert('کد شغل تکثیرشده', text('#jobs-table').includes('J-1001-2'));
+
+click('#jobs-table button[data-action="edit"]');
+setField('jf-title', 'جوشکار تأسیسات (ویرایش‌شده)');
+document.querySelector('#job-form').dispatchEvent(new window.Event('submit'));
+assert('ویرایش شغل', text('#jobs-table').includes('ویرایش‌شده'));
+
+click('#jobs-table button[data-action="profile"]');
+assert('شناسنامه شغل باز شد', document.querySelector('#view-job-profile')?.classList.contains('is-active'));
+for (const section of ['مشخصات عمومی', 'هدف شغل', 'شرح وظایف', 'مسئولیت‌ها', 'اختیارات', 'ارتباطات سازمانی', 'شرایط احراز', 'مهارت‌ها', 'شرایط محیط کار', 'عوامل ارزیابی', 'امتیازات', 'گروه شغلی', 'تأیید کارشناسی']) {
+  contains(`شناسنامه: بخش ${section}`, text('#job-profile-body'), section);
+}
+contains('شناسنامه: متن هدف شغل', text('#job-profile-body'), 'اتصال قطعات فلزی');
+assert('شناسنامه: ۱۳ بخش', document.querySelectorAll('#job-profile-body .profile-section').length === 13, String(document.querySelectorAll('#job-profile-body .profile-section').length));
+assert('شناسنامه: دکمه چاپ', document.querySelector('#profile-print') !== null);
+click('#profile-back');
+assert('بازگشت به بانک مشاغل', document.querySelector('#view-jobs')?.classList.contains('is-active'));
+
+/* ------------------------- تفکیک داده بین کارگاه‌ها ------------------------- */
+
+click('.nav-item[data-route="workshops"]');
+submitWorkshop({ 'wf-company': 'شرکت دوم', 'wf-name': 'کارگاه دوم', 'wf-code': 'WS-2002' });
+await new Promise((resolve) => setTimeout(resolve, 20));
+const secondWorkshopId = JSON.parse(localStorage.getItem('mashaqel.state.v2')).workshops[1].id;
+setSelect('#active-workshop', secondWorkshopId);
+click('.nav-item[data-route="jobs"]');
+assert('تفکیک کارگاهی: کارگاه دوم بدون شغل', text('#jobs-table').includes('هنوز شغلی ثبت نشده'), text('#jobs-table'));
+const firstWorkshopId = JSON.parse(localStorage.getItem('mashaqel.state.v2')).workshops[0].id;
+setSelect('#active-workshop', firstWorkshopId);
+assert('بازگشت به کارگاه اول: شغل موجود', text('#jobs-table').includes('J-1001'));
+
+/* --------------------- اتصال ارزیابی به شناسنامه شغل --------------------- */
+
+click('.nav-item[data-route="evaluation"]');
+const storedJobId = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs[0].id;
+setField('e-job', storedJobId);
+click('#e-calc');
+click('#eval-save');
+assert('ثبت ارزیابی در شغل', text('#eval-save-msg').includes('ثبت شد'), text('#eval-save-msg'));
+const savedJob = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs.find((job) => job.id === storedJobId);
+assert('ارزیابی ذخیره‌شده: امتیاز ۳۲۳', savedJob?.evaluation?.totalScore === 323, String(savedJob?.evaluation?.totalScore));
+assert('ارزیابی ذخیره‌شده: گروه ۱۲', savedJob?.evaluation?.proposedGroup === 12, String(savedJob?.evaluation?.proposedGroup));
+
+click('.nav-item[data-route="jobs"]');
+const firstJobRow = [...document.querySelectorAll('#jobs-table tbody tr')][0]?.textContent?.replace(/\s+/g, ' ') ?? '';
+assert('نمایش امتیاز در جدول مشاغل', firstJobRow.includes(fa(323)), firstJobRow);
+assert('نمایش گروه در جدول مشاغل', firstJobRow.includes(fa(12)), firstJobRow);
+
+setInput('jobs-search', 'J-1001-2');
+assert('جستجوی شغل', document.querySelectorAll('#jobs-table tbody tr').length === 1, String(document.querySelectorAll('#jobs-table tbody tr').length));
+setInput('jobs-search', 'شغل ناموجود');
+assert('جستجوی بدون نتیجه', text('#jobs-table').includes('یافت نشد'));
+setInput('jobs-search', '');
+
+click('#jobs-table button[data-action="delete"]');
+assert('حذف شغل', document.querySelectorAll('#jobs-table tbody tr').length === 1, String(document.querySelectorAll('#jobs-table tbody tr').length));
 
 /* -------------------------- حقوق و دستمزد و ارقام -------------------------- */
 

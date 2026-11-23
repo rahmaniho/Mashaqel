@@ -439,7 +439,7 @@ code {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -1324,5 +1324,225 @@ input[dir='ltr'],
     position: static;
     box-shadow: none;
     border-bottom: 2px solid var(--navy-800);
+  }
+}
+
+
+/* ======================= بانک مشاغل و شناسنامه شغل (فاز ۳) ======================= */
+
+textarea {
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--ink);
+  width: 100%;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+textarea:focus {
+  outline: 2px solid rgba(212, 175, 55, 0.35);
+  border-color: var(--gold-500);
+}
+
+.form-section {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 14px 14px;
+  margin: 0 0 12px;
+  background: #fdfefe;
+}
+
+.form-section legend {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--navy-800);
+  padding: 0 8px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.search-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+
+.search-field input {
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+}
+
+.search-field input:focus {
+  outline: 2px solid rgba(212, 175, 55, 0.35);
+  border-color: var(--gold-500);
+}
+
+.field-inline {
+  flex: 0 1 190px;
+}
+
+.field-inline select {
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+}
+
+.actions-cell {
+  white-space: nowrap;
+}
+
+.actions-cell .icon-btn {
+  margin-inline-end: 2px;
+}
+
+/* -------------------------------- شناسنامه -------------------------------- */
+
+.profile {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.profile-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  border-bottom: 3px solid var(--gold-500);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.profile-header h2 {
+  color: var(--navy-800);
+  font-size: 20px;
+}
+
+.profile-header-meta {
+  text-align: end;
+}
+
+.profile-header-meta p {
+  margin: 6px 0 0;
+}
+
+.profile-section {
+  margin-bottom: 16px;
+  break-inside: avoid;
+}
+
+.profile-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--navy-800);
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 5px;
+  margin-bottom: 8px;
+}
+
+.profile-number {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--navy-800);
+  color: var(--gold-400);
+  font-size: 11px;
+  flex: 0 0 22px;
+}
+
+.profile-content {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.profile-content h4 {
+  margin: 8px 0 4px;
+  color: var(--navy-700);
+  font-size: 12px;
+}
+
+.profile-list {
+  margin: 0;
+  padding-inline-start: 18px;
+}
+
+.profile-list li {
+  margin-bottom: 3px;
+}
+
+.profile-table th {
+  background: var(--paper) !important;
+  color: var(--navy-800) !important;
+  font-weight: 600;
+  width: 16%;
+  position: static;
+}
+
+.profile-table td {
+  background: var(--white);
+}
+
+.profile-table tr:nth-child(even) td {
+  background: #fbfcfe;
+}
+
+.profile-summary {
+  margin-bottom: 10px;
+}
+
+.profile-footer {
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+  margin-top: 10px;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .profile {
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+  }
+  .profile-table th {
+    background: #f0f0f0 !important;
+    border: 1px solid #ccc;
+  }
+  .profile-table td {
+    border: 1px solid #ccc;
+  }
+  .profile-section {
+    page-break-inside: avoid;
+  }
+  .profile-header h2 {
+    font-size: 17px;
   }
 }
