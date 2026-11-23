@@ -44,6 +44,15 @@ await new Promise((resolve) => setTimeout(resolve, 300));
 const text = (selector) =>
   (document.querySelector(selector)?.innerHTML ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
+const waitFor = async (predicate, timeout = 5000) => {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    if (predicate()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return predicate();
+};
+
 const fa = (value) => new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 0 }).format(value);
 const en = (value) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
 const click = (selector) =>
@@ -93,38 +102,6 @@ const checks = [];
 const assert = (label, condition, detail = '') => checks.push({ label, ok: Boolean(condition), detail });
 const contains = (label, haystack, needle) => assert(label, haystack.includes(needle), needle);
 
-/* ------------------------------ پوسته و مسیریابی ------------------------------ */
-
-const navItems = [...document.querySelectorAll('.nav-item')];
-assert('منوی کناری: ۱۲ بخش', navItems.length === 12, String(navItems.length));
-assert('منوی کناری: ۱۱ بخش فعال', navItems.filter((item) => !item.disabled).length === 11, String(navItems.filter((item) => !item.disabled).length));
-assert(
-  'بخش «شناسنامه فرمول‌ها و اسناد قانونی» پنهان شده است',
-  document.querySelector('#view-reference') === null && !document.body.innerHTML.includes('شناسنامه فرمول') && !document.body.innerHTML.includes('بانک قوانین'),
-);
-assert('داشبورد پیش‌فرض فعال است', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
-
-click('.nav-item[data-route="group"]');
-assert('مسیریابی به گروه شغلی', document.querySelector('#view-group')?.classList.contains('is-active'));
-assert('عنوان صفحه به‌روزرسانی شد', document.querySelector('#page-title')?.textContent === 'تعیین گروه شغلی');
-
-click('.nav-item[data-route="dashboard"]');
-assert('بازگشت به داشبورد', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
-
-/* --------------------------------- داشبورد --------------------------------- */
-
-assert('داشبورد: ۴ کارت شاخص', document.querySelectorAll('#kpi-grid .kpi').length === 4);
-assert('داشبورد: نمودار مزد', document.querySelectorAll('#wage-chart svg rect.bar').length === 20, String(document.querySelectorAll('#wage-chart svg rect.bar').length));
-assert('داشبورد: نمودار سنوات', document.querySelector('#seniority-chart svg path.line-path') !== null);
-assert('داشبورد: فهرست محدودیت‌ها', document.querySelectorAll('#limitations li').length === 4);
-contains('داشبورد: مزد گروه ۱', text('#kpi-grid'), fa(core.MIN_DAILY_1405));
-
-/* -------------------------------- کارگاه‌ها -------------------------------- */
-
-click('.nav-item[data-route="workshops"]');
-assert('مسیریابی به کارگاه‌ها', document.querySelector('#view-workshops')?.classList.contains('is-active'));
-assert('جدول کارگاه‌ها خالی است', text('#workshop-table').includes('هنوز کارگاهی ثبت نشده'));
-
 const setField = (id, value) => {
   const input = document.querySelector(`#${id}`);
   if (input.options) {
@@ -149,6 +126,55 @@ const setTextArea = (id, value) => {
     /* linkedom */
   }
 };
+
+
+/* ------------------------------ پوسته و مسیریابی ------------------------------ */
+
+const navItems = [...document.querySelectorAll('.nav-item')];
+assert('منوی کناری: ۱۲ بخش', navItems.length === 12, String(navItems.length));
+assert('منوی کناری: ۱۲ آیتم در حالت اولیه', navItems.length === 12, String(navItems.length));
+assert(
+  'بخش «شناسنامه فرمول‌ها و اسناد قانونی» پنهان شده است',
+  document.querySelector('#view-reference') === null && !document.body.innerHTML.includes('شناسنامه فرمول') && !document.body.innerHTML.includes('بانک قوانین'),
+);
+/* ------------------------ فاز ۱۰: راه‌اندازی امنیتی ------------------------ */
+
+assert('امنیت: صفحه راه‌اندازی اولیه', document.querySelector('#auth-gate')?.hidden === false && document.querySelector('#auth-setup')?.hidden === false);
+assert('امنیت: ورود تا تکمیل راه‌اندازی مسدود است', document.querySelector('#auth-gate')?.hidden === false && document.querySelectorAll('.nav-item').length === 12);
+
+setField('au-name', 'مدیر نمونه');
+setField('au-username', 'admin');
+setField('au-password', 'Admin@1405');
+setField('au-password2', 'Admin@1405');
+document.querySelector('#auth-setup').dispatchEvent(new window.Event('submit'));
+const setupDone = await waitFor(() => document.querySelector('#auth-gate')?.hidden === true);
+assert('امنیت: راه‌اندازی و ورود مدیر', setupDone);
+assert('امنیت: منوی کامل برای مدیر', [...document.querySelectorAll('.nav-item')].filter((item) => !item.disabled).length === 12, String([...document.querySelectorAll('.nav-item')].filter((item) => !item.disabled).length));
+contains('امنیت: نشان کاربر', text('#user-chip'), 'مدیر نمونه');
+
+assert('داشبورد پیش‌فرض فعال است', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
+
+click('.nav-item[data-route="group"]');
+assert('مسیریابی به گروه شغلی', document.querySelector('#view-group')?.classList.contains('is-active'));
+assert('عنوان صفحه به‌روزرسانی شد', document.querySelector('#page-title')?.textContent === 'تعیین گروه شغلی');
+
+click('.nav-item[data-route="dashboard"]');
+assert('بازگشت به داشبورد', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
+
+/* --------------------------------- داشبورد --------------------------------- */
+
+assert('داشبورد: ۴ کارت شاخص', document.querySelectorAll('#kpi-grid .kpi').length === 4);
+assert('داشبورد: نمودار مزد', document.querySelectorAll('#wage-chart svg rect.bar').length === 20, String(document.querySelectorAll('#wage-chart svg rect.bar').length));
+assert('داشبورد: نمودار سنوات', document.querySelector('#seniority-chart svg path.line-path') !== null);
+assert('داشبورد: فهرست محدودیت‌ها', document.querySelectorAll('#limitations li').length === 4);
+contains('داشبورد: مزد گروه ۱', text('#kpi-grid'), fa(core.MIN_DAILY_1405));
+
+/* -------------------------------- کارگاه‌ها -------------------------------- */
+
+click('.nav-item[data-route="workshops"]');
+assert('مسیریابی به کارگاه‌ها', document.querySelector('#view-workshops')?.classList.contains('is-active'));
+assert('جدول کارگاه‌ها خالی است', text('#workshop-table').includes('هنوز کارگاهی ثبت نشده'));
+
 
 const setInput = (id, value) => {
   const input = document.querySelector(`#${id}`);
@@ -985,6 +1011,150 @@ assert('مسیریابی به تنظیمات', document.querySelector('#view-set
 contains('تنظیمات: نسخه موتور', text('#settings-meta'), data.meta.engineVersion);
 contains('تنظیمات: کلید ذخیره‌سازی', text('#settings-meta'), 'mashaqel.state.v2');
 contains('تنظیمات: مشخصات داده', text('#data-meta'), fa(data.levels.length));
+
+/* --------------------------- امنیت و نقش‌ها (فاز ۱۰) --------------------------- */
+
+const loginAs = async (username, password) => {
+  setField('al-username', username);
+  setField('al-password', password);
+  document.querySelector('#auth-login').dispatchEvent(new window.Event('submit'));
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  return waitFor(() => document.querySelector('#auth-gate')?.hidden === true, 4000);
+};
+const logout = () => click('#logout-btn');
+const userRowCount = () => document.querySelectorAll('#users-table tbody tr').length;
+const enabledRoutes = () =>
+  [...document.querySelectorAll('.nav-item')].filter((item) => !item.disabled).map((item) => item.dataset.route);
+const scopeWorkshopId = (JSON.parse(localStorage.getItem('mashaqel.state.v2') ?? '{}').workshops ?? []).find((row) => row.workshopCode === 'WS-1001')?.id;
+const submitUser = async (fields) => {
+  click('#user-new');
+  setField('uf-name', fields.name);
+  setField('uf-username', fields.username);
+  setSelect('#uf-role', fields.role ?? 'EXPERT');
+  setSelect('#uf-active', fields.active ?? 'ACTIVE');
+  setField('uf-password', fields.password ?? 'Pass1234');
+  selectMulti('#uf-workshops', fields.workshops ?? []);
+  document.querySelector('#user-form').dispatchEvent(new window.Event('submit'));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+};
+
+click('.nav-item[data-route="users"]');
+assert('امنیت: مسیریابی به کاربران', document.querySelector('#view-users')?.classList.contains('is-active'));
+assert('امنیت: حساب مدیر اولیه', userRowCount() === 1, String(userRowCount()));
+contains('امنیت: نقش مدیر در فهرست', text('#users-table'), 'مدیر سامانه');
+
+await submitUser({ name: 'کارشناس نمونه', username: 'expert', role: 'EXPERT', password: 'Expert@1405', workshops: [scopeWorkshopId] });
+assert('امنیت: ایجاد کاربر کارشناس', userRowCount() === 2, String(userRowCount()));
+contains('امنیت: محدوده کارگاه کاربر', text('#users-table'), 'کارگاه شماره یک');
+contains('امنیت: جدول کاربران نقش کارشناس', text('#users-table'), 'کارشناس طبقه‌بندی');
+
+await submitUser({ name: 'کاربر تکراری', username: 'expert', role: 'VIEWER' });
+contains('امنیت: رد نام کاربری تکراری', text('#user-error'), 'قبلاً ثبت شده');
+await submitUser({ name: 'کاربر ضعیف', username: 'weakuser', role: 'VIEWER', password: '123' });
+contains('امنیت: رد رمز ضعیف', text('#user-error'), 'حداقل ۸');
+await submitUser({ name: 'بازدیدکننده نمونه', username: 'viewer', role: 'VIEWER', password: 'Viewer@1405' });
+await submitUser({ name: 'کارشناس حقوق', username: 'payroll', role: 'PAYROLL', password: 'Payroll@1405' });
+assert('امنیت: چهار کاربر ثبت شد', userRowCount() === 4, String(userRowCount()));
+contains('امنیت: شمارنده کاربران', text('#users-count'), fa(4));
+
+click('#activity-refresh');
+assert('امنیت: گزارش فعالیت ثبت شده است', document.querySelectorAll('#activity-table tbody tr').length >= 5, String(document.querySelectorAll('#activity-table tbody tr').length));
+contains('امنیت: رویداد ایجاد کاربر', text('#activity-table'), 'ایجاد کاربر');
+const actAll = text('#activity-table');
+contains('امنیت: رویداد راه‌اندازی', text('#activity-table'), 'راه‌اندازی');
+
+setField('activity-search', 'expert');
+document.querySelector('#activity-search').dispatchEvent(new window.Event('input'));
+const filteredActivity = [...document.querySelectorAll('#activity-table tbody tr')];
+assert(
+  'امنیت: جستجوی گزارش فعالیت',
+  filteredActivity.length > 0 && filteredActivity.every((row) => row.textContent.includes('expert')),
+  String(filteredActivity.length),
+);
+setField('activity-search', '');
+document.querySelector('#activity-search').dispatchEvent(new window.Event('input'));
+
+const adminRow = [...document.querySelectorAll('#users-table tbody tr')].find((row) => row.textContent.includes('admin'));
+adminRow.querySelector('button[data-user-action="edit"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+setSelect('#uf-active', 'INACTIVE');
+document.querySelector('#user-form').dispatchEvent(new window.Event('submit'));
+await new Promise((resolve) => setTimeout(resolve, 200));
+contains('امنیت: حفاظت از آخرین مدیر', text('#user-error'), 'حداقل یک مدیر');
+click('#user-cancel');
+assert('امنیت: مدیر غیرفعال نشد', text('#users-table').includes('مدیر سامانه'));
+
+logout();
+assert('امنیت: خروج و نمایش فرم ورود', document.querySelector('#auth-gate')?.hidden === false && document.querySelector('#auth-login')?.hidden === false);
+assert('امنیت: پاک شدن نشان کاربر', text('#user-chip') === '');
+
+assert('امنیت: ورود کارشناس', await loginAs('expert', 'Expert@1405'));
+contains('امنیت: نشان کاربر کارشناس', text('#user-chip'), 'کارشناس طبقه‌بندی');
+contains('امنیت: رویداد ورود', text('#activity-table'), 'ورود موفق');
+const expertRoutes = enabledRoutes();
+assert(
+  'امنیت: دسترسی ماژول‌های کارشناس',
+  expertRoutes.includes('jobs') && expertRoutes.includes('evaluation') && !expertRoutes.includes('users') && !expertRoutes.includes('employees'),
+  expertRoutes.join(','),
+);
+
+click('.nav-item[data-route="workshops"]');
+assert('امنیت: کارشناس فقط کارگاه مجاز را می‌بیند', document.querySelectorAll('#workshop-table tbody tr').length === 1, String(document.querySelectorAll('#workshop-table tbody tr').length));
+assert('امنیت: انتخابگر کارگاه محدود شد', document.querySelectorAll('#active-workshop option').length === 2, String(document.querySelectorAll('#active-workshop option').length));
+click('#workshop-new');
+assert('امنیت: جلوگیری از تغییر کارگاه توسط کارشناس', document.querySelector('#workshop-form')?.hidden === true);
+contains('امنیت: پیام رد دسترسی', text('#toast'), 'دسترسی لازم');
+
+click('.nav-item[data-route="jobs"]');
+const jobsBeforeDeniedDelete = document.querySelectorAll('#jobs-table tbody tr').length;
+click('#jobs-table button[data-action="delete"]');
+assert('امنیت: حذف شغل برای کارشناس مسدود شد', document.querySelectorAll('#jobs-table tbody tr').length === jobsBeforeDeniedDelete, String(document.querySelectorAll('#jobs-table tbody tr').length));
+contains('امنیت: پیام حذف فقط مدیر', text('#toast'), 'فقط برای مدیر');
+
+logout();
+assert('امنیت: ورود کارشناس حقوق', await loginAs('payroll', 'Payroll@1405'));
+const payrollRoutes = enabledRoutes();
+assert(
+  'امنیت: دسترسی ماژول‌های حقوق و دستمزد',
+  payrollRoutes.includes('payroll') && payrollRoutes.includes('arrears') && !payrollRoutes.includes('jobs') && !payrollRoutes.includes('users'),
+  payrollRoutes.join(','),
+);
+
+logout();
+assert('امنیت: ورود بازدیدکننده', await loginAs('viewer', 'Viewer@1405'));
+assert('امنیت: نقش بازدیدکننده فقط خواندنی', document.body.classList.contains('is-readonly'));
+const viewerRoutes = enabledRoutes();
+assert(
+  'امنیت: دسترسی ماژول‌های بازدیدکننده',
+  viewerRoutes.length === 4 && viewerRoutes.includes('dashboard') && viewerRoutes.includes('reports') && !viewerRoutes.includes('employees'),
+  viewerRoutes.join(','),
+);
+assert('امنیت: آیتم کاربران برای بازدیدکننده غیرفعال', document.querySelector('.nav-item[data-route="users"]')?.disabled === true);
+click('.nav-item[data-route="jobs"]');
+click('#job-new');
+assert('امنیت: بازدیدکننده نمی‌تواند شغل بسازد', document.querySelector('#job-form')?.hidden === true);
+contains('امنیت: پیام فقط‌خواندنی', text('#toast'), 'دسترسی لازم');
+
+logout();
+let lockedMessage = '';
+for (let attempt = 0; attempt < 5; attempt += 1) {
+  await loginAs('viewer', 'Wrong1234');
+  lockedMessage = text('#auth-login-msg');
+}
+contains('امنیت: قفل حساب پس از ۵ تلاش ناموفق', lockedMessage, 'قفل');
+
+assert('امنیت: ورود مجدد مدیر', await loginAs('admin', 'Admin@1405'));
+click('.nav-item[data-route="users"]');
+contains('امنیت: گزارش رویدادهای رد دسترسی', text('#activity-table'), 'رد دسترسی');
+
+const expertRow = [...document.querySelectorAll('#users-table tbody tr')].find((row) => row.textContent.includes('expert'));
+expertRow.querySelector('button[data-user-action="edit"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+setSelect('#uf-active', 'INACTIVE');
+document.querySelector('#user-form').dispatchEvent(new window.Event('submit'));
+await new Promise((resolve) => setTimeout(resolve, 200));
+contains('امنیت: غیرفعال‌سازی کاربر', text('#users-table'), 'غیرفعال');
+logout();
+assert('امنیت: حساب غیرفعال اجازه ورود ندارد', (await loginAs('expert', 'Expert@1405')) === false);
+contains('امنیت: پیام حساب غیرفعال', text('#auth-login-msg'), 'غیرفعال شده');
 
 /* --------------------------------- نتیجه --------------------------------- */
 
