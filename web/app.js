@@ -3694,6 +3694,14 @@ function saveEmployeeFromForm() {
   if (draft.personnelCode && duplicate) {
     problems.push(`کد پرسنلی «${draft.personnelCode}» قبلاً برای «${duplicate.firstName} ${duplicate.lastName}» ثبت شده است.`);
   }
+  const duplicateNational = draft.nationalId
+    ? workshopEmployees().find(
+        (employee) => employee.id !== existing?.id && employee.nationalId && employee.nationalId === draft.nationalId,
+      )
+    : null;
+  if (duplicateNational) {
+    problems.push(`کد ملی «${draft.nationalId}» قبلاً برای «${duplicateNational.firstName} ${duplicateNational.lastName}» ثبت شده است.`);
+  }
   if (!draft.firstName) problems.push('نام الزامی است.');
   if (!draft.lastName) problems.push('نام خانوادگی الزامی است.');
   if (draft.nationalId && !/^\d{10}$/.test(draft.nationalId)) problems.push('کد ملی باید ۱۰ رقم باشد.');
