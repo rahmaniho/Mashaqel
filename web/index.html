@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>مشاغل — موتور ارزیابی، طبقه‌بندی مشاغل و محاسبات مزد ۱۴۰۵</title>
+    <meta
+      name="description"
+      content="ماشین‌حساب تحت وب مزد ۱۴۰۵، پایه سنوات گروهی، تطبیق گروه شغلی و ارزیابی امتیازی مشاغل بر پایه دستورالعمل ۶۷۲۴ و بخشنامه ۶۶۸۲ (ریال ایران)."
+    />
+    <link rel="stylesheet" href="./style.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f766e'/%3E%3Ctext x='32' y='43' font-size='30' text-anchor='middle' fill='white' font-family='Tahoma'%3E%D9%85%3C/text%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="header-inner">
+        <div class="brand">
+          <div class="logo" aria-hidden="true">م</div>
+          <div>
+            <h1>مشاغل <span class="brand-sub">موتور طبقه‌بندی مشاغل و محاسبات مزد</span></h1>
+            <p class="brand-line">ارزیابی شغل، تعیین گروه و محاسبه مزد ۱۴۰۵ بر پایه دستورالعمل ۶۷۲۴ و بخشنامه ۶۶۸۲</p>
+          </div>
+        </div>
+        <div class="header-meta">
+          <span class="badge badge-currency" title="تمام مبالغ به ریال ایران است">ریال (IRR)</span>
+          <button id="digits-toggle" class="ghost-btn" type="button" title="تغییر شکل ارقام">ارقام: فارسی</button>
+        </div>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="بخش‌های سامانه">
+        <button class="tab is-active" data-tab="wage" role="tab" aria-selected="true">ماشین‌حساب مزد ۱۴۰۵</button>
+        <button class="tab" data-tab="seniority" role="tab" aria-selected="false">پایه سنوات</button>
+        <button class="tab" data-tab="group" role="tab" aria-selected="false">گروه شغلی</button>
+        <button class="tab" data-tab="eval" role="tab" aria-selected="false">ارزیابی امتیازی شغل</button>
+        <button class="tab" data-tab="reference" role="tab" aria-selected="false">فرمول‌ها و اسناد</button>
+      </nav>
+    </header>
+
+    <main class="container">
+      <!-- ============================ مزد ============================ -->
+      <section id="panel-wage" class="panel is-active" role="tabpanel" aria-labelledby="tab-wage">
+        <div class="panel-head">
+          <div>
+            <h2>ماشین‌حساب مزد و مزایای سال ۱۴۰۵</h2>
+            <p class="muted">
+              مزد شغل: <code>max(مزد ۱۴۰۴ × 1.45 + 519,549 ; 5,541,850)</code> — پایه سنوات گروهی، مزد مبنا، مزایای رفاهی، بیمه و خالص پرداختی.
+            </p>
+          </div>
+          <div class="head-actions">
+            <button class="ghost-btn" type="button" id="wage-reset">بازنشانی</button>
+            <button class="primary-btn" type="button" id="wage-calc">محاسبه مزد</button>
+          </div>
+        </div>
+
+        <div class="layout">
+          <form class="card form-card" id="wage-form" autocomplete="off">
+            <h3 class="card-title">ورودی‌ها</h3>
+            <div class="field-grid">
+              <label class="field">
+                <span>طرح طبقه‌بندی</span>
+                <select id="w-scheme"></select>
+              </label>
+              <label class="field">
+                <span>گروه شغلی</span>
+                <select id="w-group"></select>
+              </label>
+              <label class="field">
+                <span>مزد شغل روزانه ۱۴۰۴ (ریال)</span>
+                <input id="w-prior" type="number" min="0" step="1" inputmode="numeric" />
+                <small class="hint" id="w-prior-hint"></small>
+              </label>
+              <label class="field">
+                <span>سنوات تجمیعی روزانه تا پایان ۱۴۰۴ (ریال)</span>
+                <input id="w-acc" type="number" min="0" step="1" inputmode="numeric" value="0" />
+                <small class="hint">مبلغ روزانه مزد سنوات انباشته تا ۱۴۰۴/۱۲/۲۹</small>
+              </label>
+              <label class="field">
+                <span>سابقه کار در کارگاه (سال)</span>
+                <input id="w-service" type="number" min="0" step="0.25" inputmode="decimal" value="1" />
+                <small class="hint">برای احراز استحقاق نرخ پایه سنوات سال جدید</small>
+              </label>
+              <label class="field">
+                <span>روزهای قابل پرداخت</span>
+                <input id="w-days" type="number" min="1" max="31" step="1" inputmode="numeric" value="30" />
+              </label>
+              <label class="field">
+                <span>مزد رتبه روزانه ۱۴۰۴ (ریال)</span>
+                <input id="w-rank" type="number" min="0" step="1" inputmode="numeric" value="0" />
+              </label>
+              <label class="field">
+                <span>سایر اجزای مزد روزانه ۱۴۰۴ (ریال)</span>
+                <input id="w-other" type="number" min="0" step="1" inputmode="numeric" value="0" />
+              </label>
+              <label class="field">
+                <span>اضافه‌کاری (ساعت)</span>
+                <input id="w-ot" type="number" min="0" step="0.5" inputmode="decimal" value="0" />
+              </label>
+              <label class="field">
+                <span>نوع نوبت‌کاری</span>
+                <select id="w-shift">
+                  <option value="NONE">بدون نوبت‌کاری</option>
+                  <option value="MORNING_EVENING">صبح و عصر (۱۰٪)</option>
+                  <option value="MORNING_EVENING_NIGHT">صبح، عصر و شب (۲۲٫۵٪)</option>
+                  <option value="DAY_NIGHT">صبح و شب / عصر و شب (۱۵٪)</option>
+                  <option value="ROTATING_24_7">گردشی ۲۴ ساعته (۱۵٪)</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>شب‌کاری (ساعت) — کارگر غیرنوبتی</span>
+                <input id="w-night" type="number" min="0" step="0.5" inputmode="decimal" value="0" />
+              </label>
+              <label class="field">
+                <span>تعداد فرزند واجد شرایط</span>
+                <input id="w-children" type="number" min="0" step="1" inputmode="numeric" value="0" />
+              </label>
+              <label class="field checkbox-field">
+                <input id="w-married" type="checkbox" />
+                <span>متأهل (حق تأهل)</span>
+              </label>
+              <label class="field checkbox-field">
+                <input id="w-welfare" type="checkbox" checked />
+                <span>احتساب مزایای رفاهی (بن، مسکن، تأهل، اولاد)</span>
+              </label>
+              <label class="field">
+                <span>نسخه پارامترهای سالانه</span>
+                <select id="w-param-version"></select>
+              </label>
+              <label class="field">
+                <span>تاریخ محاسبه (شمسی)</span>
+                <input id="w-date" type="text" value="1405-03-15" placeholder="1405-03-15" dir="ltr" />
+              </label>
+            </div>
+            <p class="form-note">
+              مزایای رفاهی هرگز با «مزد شغل» و «مزد مبنا» ادغام نمی‌شود؛ در محاسبه بیمه نیز حق اولاد معاف است.
+            </p>
+          </form>
+
+          <div class="results-col" id="wage-results">
+            <div class="empty-state">برای مشاهده نتیجه، دکمه «محاسبه مزد» را بزنید.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ سنوات ============================ -->
+      <section id="panel-seniority" class="panel" role="tabpanel" aria-labelledby="tab-seniority">
+        <div class="panel-head">
+          <div>
+            <h2>پایه سنوات ۱۴۰۵ به تفکیک گروه</h2>
+            <p class="muted">
+              نرخ پایه سنوات هر گروه مستقیماً از جدول رسمی ماده ۲ دستورالعمل ۶۷۲۴ خوانده می‌شود؛ نرخ عمومی ۱۶۶٬۶۶۷ ریال فقط متعلق به گروه ۱ است.
+            </p>
+          </div>
+        </div>
+        <div class="layout">
+          <div class="card">
+            <h3 class="card-title">محاسبه پایه سنوات یک شاغل</h3>
+            <div class="field-grid compact">
+              <label class="field">
+                <span>گروه شغلی</span>
+                <select id="s-group"></select>
+              </label>
+              <label class="field">
+                <span>سنوات تجمیعی روزانه ۱۴۰۴ (ریال)</span>
+                <input id="s-acc" type="number" min="0" step="1" value="0" inputmode="numeric" />
+              </label>
+              <label class="field">
+                <span>سابقه در کارگاه (سال)</span>
+                <input id="s-service" type="number" min="0" step="0.25" value="1" inputmode="decimal" />
+              </label>
+              <label class="field">
+                <span>تاریخ محاسبه</span>
+                <input id="s-date" type="text" value="1405-03-15" dir="ltr" />
+              </label>
+            </div>
+            <button class="primary-btn" type="button" id="s-calc">محاسبه پایه سنوات</button>
+            <div id="s-result" class="mini-results"></div>
+          </div>
+          <div class="card">
+            <h3 class="card-title">جدول مزد سنوات تجمیعی تا پایان ۱۴۰۴ (مبنای گروه ۱)</h3>
+            <div class="table-wrap tall">
+              <table class="data-table" id="s-cumulative-table"></table>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="card-title">نرخ پایه سنوات روزانه ۱۴۰۵ گروه‌های بیست‌گانه</h3>
+          <div class="table-wrap">
+            <table class="data-table" id="s-rate-table"></table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ گروه ============================ -->
+      <section id="panel-group" class="panel" role="tabpanel" aria-labelledby="tab-group">
+        <div class="panel-head">
+          <div>
+            <h2>تطبیق امتیاز شغل با گروه شغلی</h2>
+            <p class="muted">امتیاز کل شغل با دامنه امتیاز مصوب هر گروه تطبیق داده می‌شود؛ گروه حاصل «پیشنهادی» است و بدون تأیید کمیته قطعی نمی‌شود.</p>
+          </div>
+        </div>
+        <div class="layout">
+          <div class="card">
+            <h3 class="card-title">امتیاز کل شغل</h3>
+            <div class="field-grid compact">
+              <label class="field">
+                <span>امتیاز کل</span>
+                <input id="g-score" type="number" min="0" max="1137" step="0.5" value="323" inputmode="decimal" />
+              </label>
+              <label class="field">
+                <span>طرح / جدول گروه‌بندی</span>
+                <select id="g-scheme"></select>
+              </label>
+              <label class="field">
+                <span>تاریخ ارزیابی</span>
+                <input id="g-date" type="text" value="1405-03-15" dir="ltr" />
+              </label>
+            </div>
+            <button class="primary-btn" type="button" id="g-calc">تعیین گروه</button>
+            <div id="g-result" class="mini-results"></div>
+          </div>
+          <div class="card">
+            <h3 class="card-title">جدول دامنه امتیازات، سقف گروه (Xn) و مازاد (Bn)</h3>
+            <div class="table-wrap tall">
+              <table class="data-table" id="g-table"></table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ ارزیابی ============================ -->
+      <section id="panel-eval" class="panel" role="tabpanel" aria-labelledby="tab-eval">
+        <div class="panel-head">
+          <div>
+            <h2>ارزیابی امتیازی شغل — نظام چهارعاملی ۱۳۸۹</h2>
+            <p class="muted">
+              امتیاز هر زیرعامل از جدول‌های رسمی مصوب ۱۳۸۹/۰۵/۱۸ خوانده می‌شود. زیرعامل‌های فاقد جدول مستند، غیرفعال و در امتیاز کل لحاظ نمی‌شوند.
+            </p>
+          </div>
+          <div class="head-actions">
+            <button class="ghost-btn" type="button" data-preset="welder">نمونه: جوشکار</button>
+            <button class="ghost-btn" type="button" data-preset="supervisor">نمونه: سرپرست تولید</button>
+            <button class="primary-btn" type="button" id="e-calc">محاسبه امتیاز و گروه</button>
+          </div>
+        </div>
+        <div class="eval-toolbar card">
+          <label class="field">
+            <span>تاریخ ارزیابی</span>
+            <input id="e-date" type="text" value="1405-03-15" dir="ltr" />
+          </label>
+          <p class="muted small">
+            سیستم A (نظام ۱۳۹۵) فقط پس از بارگذاری «طرح مصوب کارگاه» با شماره تأییدیه اداره کل روابط کار فعال می‌شود؛ در این نسخه وب، داده طرح کارگاه بارگذاری نشده است.
+          </p>
+        </div>
+        <div id="eval-form" class="eval-grid"></div>
+        <div id="eval-results" class="results-col"></div>
+      </section>
+
+      <!-- ============================ مرجع ============================ -->
+      <section id="panel-reference" class="panel" role="tabpanel" aria-labelledby="tab-reference">
+        <div class="panel-head">
+          <div>
+            <h2>شناسنامه فرمول‌ها و اسناد قانونی</h2>
+            <p class="muted">
+              هر فرمول دارای نسخه، بازه اعتبار، منبع قانونی، شماره بخشنامه و یکی از چهار وضعیت اعتبار است. نسخه مرجع کامل:
+              <code>JOB_CLASSIFICATION_FORMULAS.md</code>
+            </p>
+          </div>
+        </div>
+        <div class="legend" id="status-legend"></div>
+        <div class="card">
+          <h3 class="card-title">فرمول‌های نسخه‌بندی‌شده</h3>
+          <div class="table-wrap tall">
+            <table class="data-table" id="f-table"></table>
+          </div>
+        </div>
+        <div class="card">
+          <h3 class="card-title">اسناد قانونی مرجع</h3>
+          <div class="table-wrap">
+            <table class="data-table" id="doc-table"></table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <div class="container footer-inner">
+        <p>
+          تمام مبالغ به <strong>ریال ایران (IRR)</strong> است. این ابزار جایگزین «حکم کارگزینی» و تأیید کمیته طبقه‌بندی مشاغل و اداره کل روابط کار نیست.
+        </p>
+        <p class="muted small" id="data-meta"></p>
+      </div>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
