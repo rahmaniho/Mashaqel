@@ -8,13 +8,18 @@
     "typecheck": "tsc --noEmit",
     "test": "node --no-warnings --experimental-strip-types --test tests/*.test.ts",
     "report": "node --no-warnings --experimental-strip-types tests/generateTestReport.ts",
-    "verify": "npm run typecheck && npm test && npm run report"
+    "verify": "npm run typecheck && npm test && npm run report",
+    "export:web": "node --no-warnings --experimental-strip-types scripts/exportWebData.ts",
+    "serve:web": "node --no-warnings --experimental-strip-types scripts/serveWeb.ts",
+    "verify:web": "node --no-warnings --experimental-strip-types scripts/verify-web-parity.ts",
+    "test:web-ui": "node tests/ui-smoke.mjs"
   },
   "engines": {
     "node": ">=22.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
+    "linkedom": "^0.18.15",
     "typescript": "^5.7.3"
   }
 }

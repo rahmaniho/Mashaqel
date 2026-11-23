@@ -1,0 +1,83 @@
+name: Deploy web app to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'src/**'
+      - 'sql/**'
+      - 'scripts/exportWebData.ts'
+      - 'scripts/verify-web-parity.ts'
+      - 'tests/ui-smoke.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ساخت بسته استاتیک وب‌اپ
+    runs-on: ubuntu-latest
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: راه‌اندازی Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: نصب وابستگی‌ها
+        run: npm ci
+
+      - name: تولید داده‌های وب از موتور
+        run: npm run export:web
+
+      - name: کنترل نوع‌ها
+        run: npm run typecheck
+
+      - name: آزمون‌های موتور
+        run: npm test
+
+      - name: تطبیق عددی هسته مرورگر با موتور
+        run: npm run verify:web
+
+      - name: آزمون دودی رابط کاربری وب‌اپ
+        run: npm run test:web-ui
+
+      - name: فعال‌سازی Pages (در صورت نیاز و وجود دسترسی)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+        continue-on-error: true
+
+      - name: پیکربندی Pages
+        uses: actions/configure-pages@v5
+
+      - name: بارگذاری بسته استاتیک
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    name: انتشار روی GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: انتشار
+        id: deployment
+        uses: actions/deploy-pages@v4
