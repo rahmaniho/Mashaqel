@@ -1012,6 +1012,15 @@ contains('تنظیمات: نسخه موتور', text('#settings-meta'), data.met
 contains('تنظیمات: کلید ذخیره‌سازی', text('#settings-meta'), 'mashaqel.state.v2');
 contains('تنظیمات: مشخصات داده', text('#data-meta'), fa(data.levels.length));
 
+/* ---------------------- سرور مرکزی — حالت محلی (فاز ۱۱) ---------------------- */
+
+assert('سرور: نشان حالت محلی', document.querySelector('#mode-chip')?.textContent === 'حالت محلی', text('#mode-chip'));
+contains('سرور: وضعیت پنل محلی', text('#backend-status'), 'حالت محلی');
+assert('سرور: دکمه بازبینی در حالت محلی غیرفعال', document.querySelector('#backend-verify')?.disabled === true);
+assert('سرور: دکمه پشتیبان مرکزی در حالت محلی غیرفعال', document.querySelector('#backend-backup')?.disabled === true);
+click('#backend-refresh');
+assert('سرور: پیام بررسی وضعیت محلی', await waitFor(() => text('#backend-note').includes('سروری در دسترس نیست'), 3000), text('#backend-note'));
+
 /* --------------------------- امنیت و نقش‌ها (فاز ۱۰) --------------------------- */
 
 const loginAs = async (username, password) => {

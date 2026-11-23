@@ -1779,6 +1779,36 @@ body.is-auth .toast {
   white-space: nowrap;
 }
 
+.backend-card {
+  margin-bottom: 18px;
+}
+
+.backend-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.backend-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+#backend-note[data-tone='ok'] {
+  color: #1c6b3f;
+}
+
+#backend-note[data-tone='warn'] {
+  color: #92610a;
+}
+
+#backend-note[data-tone='error'] {
+  color: #a12626;
+}
+
 .security-note {
   border-inline-start: 4px solid var(--gold-500);
   font-size: 0.82rem;

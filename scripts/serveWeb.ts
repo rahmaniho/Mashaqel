@@ -4,8 +4,9 @@
  * پورت با متغیر محیطی PORT قابل تغییر است.
  */
 
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +14,46 @@ const here = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(here, '..', 'web');
 const port = Number(process.env.PORT ?? 4173);
 const host = process.env.HOST ?? '0.0.0.0';
+
+/**
+ * پراکسی سرور مرکزی (فاز ۱۱): درخواست‌های /api به سرویس محلی هدایت می‌شوند
+ * تا مرورگر فقط با همین مبدأ صحبت کند (بدون CORS و بدون دسترسی مستقیم به localhost از سمت مرورگر).
+ */
+const apiTarget = new URL(process.env.MASHQEL_API ?? 'http://127.0.0.1:8787');
+
+function proxyApi(request: IncomingMessage, response: ServerResponse): void {
+  const targetPath = (request.url ?? '/api/health').replace(/^\/api/, '') || '/';
+  const upstream = httpRequest(
+    {
+      hostname: apiTarget.hostname,
+      port: apiTarget.port || 80,
+      path: `/api${targetPath}`,
+      method: request.method,
+      headers: { ...request.headers, host: apiTarget.host },
+    },
+    (upstreamResponse) => {
+      response.writeHead(upstreamResponse.statusCode ?? 502, {
+        ...upstreamResponse.headers,
+        'cache-control': 'no-store',
+      });
+      upstreamResponse.pipe(response);
+    },
+  );
+  upstream.on('error', () => {
+    if (response.headersSent) {
+      response.destroy();
+      return;
+    }
+    response.writeHead(502, { 'content-type': 'application/json; charset=utf-8' });
+    response.end(
+      JSON.stringify({
+        error: 'BACKEND_UNAVAILABLE',
+        message: 'سرور مرکزی در دسترس نیست؛ ابتدا «npm run serve:api» را اجرا کنید.',
+      }),
+    );
+  });
+  request.pipe(upstream);
+}
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -45,6 +86,10 @@ function resolveTarget(urlPath: string): string | null {
 
 const server = createServer((request, response) => {
   const startedAt = Date.now();
+  if ((request.url ?? '').startsWith('/api/') || request.url === '/api') {
+    proxyApi(request, response);
+    return;
+  }
   let target = resolveTarget(request.url ?? '/');
   if (!target) target = join(webRoot, 'index.html');
 
@@ -75,4 +120,5 @@ const server = createServer((request, response) => {
 
 server.listen(port, host, () => {
   console.log(`وب‌اپ مشاغل روی http://localhost:${port} سرو می‌شود (ریشه: ${webRoot}).`);
+  console.log(`پراکسی سرور مرکزی: /api → ${apiTarget.origin} (در صورت اجرای npm run serve:api)`);
 });

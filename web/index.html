@@ -143,6 +143,7 @@
             <button id="digits-toggle" class="ghost-btn" type="button" title="تغییر شکل ارقام">ارقام: فارسی</button>
             <button class="ghost-btn" type="button" id="print-btn" title="چاپ صفحه جاری">چاپ</button>
             <span class="user-chip" id="user-chip" title="کاربر جاری"></span>
+            <span class="chip neutral" id="mode-chip" title="حالت اجرا" hidden></span>
             <button class="ghost-btn" type="button" id="logout-btn" title="خروج از حساب">خروج</button>
           </div>
         </header>
@@ -1227,6 +1228,36 @@
 
           <!-- ------------------------------- تنظیمات ------------------------------- -->
           <section id="view-settings" class="view">
+            <div class="card backend-card">
+              <div class="card-head">
+                <div>
+                  <h3>سرور مرکزی (فاز ۱۱)</h3>
+                  <p class="muted small">
+                    احراز هویت سمت سرور، گزارش فعالیت غیرقابل‌دستکاری (زنجیره هش) و پشتیبان‌گیری مرکزی.
+                    برای راه‌اندازی سرور در شبکه سازمان: <code dir="ltr">npm run serve:api</code> و سپس
+                    <code dir="ltr">npm run serve:web</code>؛ نسخه منتشرشده روی GitHub Pages فقط حالت محلی دارد.
+                  </p>
+                </div>
+                <span class="badge badge-soft" id="backend-status"></span>
+              </div>
+              <div class="backend-grid">
+                <label class="field">
+                  <span>نشانی سرویس (Base URL)</span>
+                  <input id="backend-url" dir="ltr" placeholder="./api" />
+                </label>
+                <div class="backend-actions">
+                  <button class="primary-btn" type="button" id="backend-connect">اتصال و بررسی</button>
+                  <button class="ghost-btn" type="button" id="backend-refresh">به‌روزرسانی وضعیت</button>
+                </div>
+              </div>
+              <div class="backend-actions">
+                <button class="ghost-btn" type="button" id="backend-verify">بازبینی زنجیره گزارش سرور</button>
+                <button class="ghost-btn" type="button" id="backend-sync-audit">ارسال گزارش محلی به سرور</button>
+                <button class="ghost-btn" type="button" id="backend-backup">پشتیبان مرکزی</button>
+                <button class="ghost-btn" type="button" id="backend-restore">بازیابی از سرور</button>
+              </div>
+              <p class="small" id="backend-note" role="status"></p>
+            </div>
             <div class="grid-2">
               <div class="card">
                 <h3>پشتیبان‌گیری و بازیابی</h3>

@@ -6,3 +6,9 @@ coverage/
 *.db-wal
 *.db-journal
 .DS_Store
+
+# سرور مرکزی (فاز ۱۱) — پایگاه داده محلی و پشتیبان‌ها
+server/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

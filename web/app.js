@@ -5538,6 +5538,129 @@ const MODULE_LABELS = {
 const authState = { user: null };
 let activityFilter = '';
 
+/* ---------------------- سرور مرکزی (فاز ۱۱) ---------------------- */
+
+const BACKEND_KEY = 'mashaqel.backend.v1';
+const BACKEND_TOKEN_KEY = 'mashaqel.backend.token';
+const backendState = { mode: 'local', base: './api', token: null, health: null, users: [], verified: null, lastError: '', status: null };
+
+function backendBase() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(BACKEND_KEY) ?? 'null');
+    if (saved?.base) return String(saved.base).replace(/\/+$/, '');
+  } catch {
+    /* پیکربندی نامعتبر */
+  }
+  return backendState.base;
+}
+
+function saveBackendConfig(base) {
+  backendState.base = base;
+  try {
+    localStorage.setItem(BACKEND_KEY, JSON.stringify({ base }));
+  } catch {
+    /* ذخیره‌سازی محلی در دسترس نیست */
+  }
+}
+
+function readBackendToken() {
+  try {
+    return sessionStorage.getItem(BACKEND_TOKEN_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeBackendToken(token) {
+  backendState.token = token || null;
+  try {
+    if (token) sessionStorage.setItem(BACKEND_TOKEN_KEY, token);
+    else sessionStorage.removeItem(BACKEND_TOKEN_KEY);
+  } catch {
+    /* sessionStorage در دسترس نیست */
+  }
+}
+
+async function apiFetch(path, { method = 'GET', body, auth = true } = {}) {
+  const headers = { 'content-type': 'application/json' };
+  if (auth && backendState.token) headers.authorization = `Bearer ${backendState.token}`;
+  const response = await fetch(`${backendBase()}${path}`, {
+    method,
+    headers,
+    cache: 'no-store',
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  let payload = {};
+  try {
+    const raw = await response.text();
+    payload = raw ? JSON.parse(raw) : {};
+  } catch {
+    payload = {};
+  }
+  if (!response.ok) {
+    const error = new Error(payload.message ?? `خطای سرور (${response.status})`);
+    error.status = response.status;
+    error.code = payload.error;
+    throw error;
+  }
+  return payload;
+}
+
+async function detectBackend() {
+  backendState.mode = 'local';
+  backendState.health = null;
+  try {
+    const response = await fetch(`${backendBase()}/health`, { cache: 'no-store' });
+    if (!response.ok) return false;
+    const payload = await response.json();
+    if (payload?.service !== 'mashaqel-backend') return false;
+    backendState.mode = 'server';
+    backendState.health = payload;
+    return true;
+  } catch (error) {
+    backendState.lastError = error?.message ?? '';
+    return false;
+  }
+}
+
+function mapServerUser(user) {
+  return {
+    id: user.id,
+    fullName: user.fullName,
+    username: user.username,
+    role: user.role,
+    workshopIds: user.workshopIds ?? [],
+    active: user.active !== false,
+    createdAt: user.createdAt ?? new Date().toISOString(),
+    lastLoginAt: user.lastLoginAt ?? null,
+  };
+}
+
+async function refreshServerStatus() {
+  if (backendState.mode !== 'server') return null;
+  try {
+    backendState.status = await apiFetch('/auth/status', { auth: false });
+    return backendState.status;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshServerUsers() {
+  if (backendState.mode !== 'server' || !backendState.token) return [];
+  try {
+    const payload = await apiFetch('/users');
+    backendState.users = (payload.users ?? []).map(mapServerUser);
+  } catch {
+    backendState.users = [];
+  }
+  return backendState.users;
+}
+
+function currentUsers() {
+  return backendState.mode === 'server' ? backendState.users : authUsers();
+}
+
 function webcrypto() {
   return (typeof crypto !== 'undefined' ? crypto : globalThis.crypto) ?? null;
 }
@@ -5668,6 +5791,14 @@ function logActivity(module, action, detail = '', extra = {}) {
     /* ذخیره‌سازی محلی در دسترس نیست */
   }
   renderActivityLog();
+  if (backendState.mode === 'server' && backendState.token && extra.mirror !== false) {
+    apiFetch('/activity', {
+      method: 'POST',
+      body: { module: entry.module, action: entry.action, detail: entry.detail, workshopId: entry.workshopId },
+    }).catch(() => {
+      /* آینه‌سازی سرور اختیاری است؛ گزارش محلی از دست نمی‌رود */
+    });
+  }
 }
 
 function ensureWrite(module, label = '') {
@@ -5684,17 +5815,31 @@ function ensureAdmin(label = '') {
   return false;
 }
 
+function serverUserCount() {
+  return backendState.status?.users ?? backendState.health?.users ?? 0;
+}
+
 function showAuthGate(mode) {
   const gate = document.getElementById('auth-gate');
   if (!gate) return;
-  const users = authUsers();
+  const userCount = backendState.mode === 'server' ? serverUserCount() : authUsers().length;
   const setup = document.getElementById('auth-setup');
   const login = document.getElementById('auth-login');
-  const wantsSetup = mode === 'setup' || users.length === 0;
+  const wantsSetup = mode === 'setup' || userCount === 0;
   gate.hidden = false;
   document.body.classList.add('is-auth');
   if (setup) setup.hidden = !wantsSetup;
   if (login) login.hidden = wantsSetup;
+  if (backendState.mode === 'server') {
+    void refreshServerStatus().then((status) => {
+      if (!status || gate.hidden) return;
+      const setupRequired = Boolean(status.setupRequired);
+      const setupForm = document.getElementById('auth-setup');
+      const loginForm = document.getElementById('auth-login');
+      if (setupForm) setupForm.hidden = !setupRequired;
+      if (loginForm) loginForm.hidden = setupRequired;
+    });
+  }
 }
 
 function hideAuthGate() {
@@ -5733,9 +5878,27 @@ async function createFirstAdmin() {
   if (!USERNAME_PATTERN.test(username)) problems.push('نام کاربری باید ۳ تا ۲۰ نویسه لاتین، رقم، نقطه، خط تیره یا زیرخط باشد.');
   if (!PASSWORD_PATTERN.test(password)) problems.push('رمز عبور حداقل ۸ نویسه و شامل حرف و رقم باشد.');
   if (password !== confirm) problems.push('تکرار رمز عبور مطابقت ندارد.');
-  if (readAuth().users.length > 0) problems.push('حساب مدیر قبلاً ساخته شده است.');
+  const existingUsers = backendState.mode === 'server' ? serverUserCount() : readAuth().users.length;
+  if (existingUsers > 0) problems.push('حساب مدیر قبلاً ساخته شده است.');
   if (problems.length > 0) {
     if (message) message.textContent = problems.join(' ');
+    return;
+  }
+  if (backendState.mode === 'server') {
+    try {
+      const payload = await apiFetch('/auth/setup', { method: 'POST', auth: false, body: { fullName: name, username, password } });
+      writeBackendToken(payload.token);
+      authState.user = mapServerUser(payload.user);
+      hideAuthGate();
+      startApp();
+      await refreshServerStatus();
+      await refreshServerUsers();
+      renderUsersTable();
+      renderBackendPanel();
+      if (message) message.textContent = '';
+    } catch (error) {
+      if (message) message.textContent = error.message;
+    }
     return;
   }
   try {
@@ -5772,6 +5935,26 @@ async function loginWithForm() {
   const message = document.getElementById('auth-login-msg');
   const username = document.getElementById('al-username').value.trim();
   const password = document.getElementById('al-password').value;
+  if (backendState.mode === 'server') {
+    try {
+      const payload = await apiFetch('/auth/login', { method: 'POST', auth: false, body: { username, password } });
+      writeBackendToken(payload.token);
+      authState.user = mapServerUser(payload.user);
+      hideAuthGate();
+      document.getElementById('al-password').value = '';
+      if (message) message.textContent = '';
+      startApp();
+      await refreshServerUsers();
+      renderUsersTable();
+      renderBackendPanel();
+      applyAccessControl();
+      showToast(`خوش آمدید، ${payload.user.fullName}`);
+    } catch (error) {
+      const text = error.status === 423 ? error.message : error.message;
+      if (message) message.textContent = text;
+    }
+    return;
+  }
   const users = authUsers();
   const user = users.find((row) => row.username.toLowerCase() === username.toLowerCase());
   const fail = (text) => {
@@ -5825,7 +6008,15 @@ async function loginWithForm() {
 
 function logoutCurrentUser() {
   const user = currentUser();
-  if (user) logActivity('security', 'LOGOUT', `خروج ${user.fullName}`);
+  if (user && backendState.mode !== 'server') logActivity('security', 'LOGOUT', `خروج ${user.fullName}`);
+  if (backendState.mode === 'server' && backendState.token) {
+    apiFetch('/auth/logout', { method: 'POST' }).catch(() => {
+      /* حتی اگر سرور پاسخ ندهد، نشست محلی بسته می‌شود */
+    });
+    writeBackendToken('');
+    backendState.users = [];
+    backendState.verified = null;
+  }
   clearSession();
   applyAccessControl();
   showAuthGate('login');
@@ -5990,12 +6181,18 @@ function initUsers() {
 function renderUsersView() {
   renderUsersTable();
   renderActivityLog();
+  if (backendState.mode === 'server' && backendState.token) {
+    void refreshServerUsers().then(() => {
+      renderUsersTable();
+      renderBackendPanel();
+    });
+  }
 }
 
 function renderUsersTable() {
   const table = document.getElementById('users-table');
   if (!table) return;
-  const users = authUsers();
+  const users = currentUsers();
   const counter = document.getElementById('users-count');
   if (counter) counter.textContent = `${fmt(users.length)} کاربر`;
   if (users.length === 0) {
@@ -6069,7 +6266,7 @@ async function saveUserFromForm() {
   if (!ensureAdmin('ذخیره کاربر')) return;
   const errorTarget = document.getElementById('user-error');
   const id = document.getElementById('uf-id').value;
-  const users = authUsers();
+  const users = currentUsers();
   const existing = id ? users.find((row) => row.id === id) : null;
   const fullName = document.getElementById('uf-name').value.trim();
   const username = document.getElementById('uf-username').value.trim();
@@ -6096,6 +6293,22 @@ async function saveUserFromForm() {
   }
   if (problems.length > 0) {
     if (errorTarget) errorTarget.textContent = problems.join(' ');
+    return;
+  }
+
+  if (backendState.mode === 'server') {
+    const payload = { fullName, username, role, active, workshopIds, ...(password ? { password } : {}) };
+    try {
+      if (existing) await apiFetch(`/users/${existing.id}`, { method: 'PATCH', body: payload });
+      else await apiFetch('/users', { method: 'POST', body: payload });
+      closeUserForm();
+      await refreshServerUsers();
+      renderUsersTable();
+      logActivity('users', existing ? 'UPDATE' : 'CREATE', `${existing ? 'ویرایش' : 'ایجاد'} کاربر «${username}» با نقش ${ROLE_LABELS[role]}`);
+      showToast(existing ? 'کاربر به‌روزرسانی شد' : 'کاربر جدید ثبت شد');
+    } catch (error) {
+      if (errorTarget) errorTarget.textContent = error.message;
+    }
     return;
   }
 
@@ -6138,7 +6351,7 @@ function deleteUser(user) {
     showToast('حذف حساب جاری مجاز نیست.');
     return;
   }
-  const users = authUsers();
+  const users = currentUsers();
   const admins = users.filter((row) => row.role === 'ADMIN' && row.active !== false);
   if (user.role === 'ADMIN' && admins.length <= 1) {
     showToast('حذف آخرین مدیر سامانه مجاز نیست.');
@@ -6146,10 +6359,192 @@ function deleteUser(user) {
   }
   const confirmed = typeof window.confirm === 'function' ? window.confirm(`حذف کاربر «${user.username}»؟`) : true;
   if (!confirmed) return;
+  if (backendState.mode === 'server') {
+    apiFetch(`/users/${user.id}`, { method: 'DELETE' })
+      .then(async () => {
+        await refreshServerUsers();
+        renderUsersTable();
+        logActivity('users', 'DELETE', `حذف کاربر «${user.username}»`);
+        showToast('کاربر حذف شد');
+      })
+      .catch((error) => showToast(error.message));
+    return;
+  }
   writeAuth({ users: users.filter((row) => row.id !== user.id) });
   renderUsersTable();
   logActivity('users', 'DELETE', `حذف کاربر «${user.username}»`);
   showToast('کاربر حذف شد');
+}
+
+
+/* ---------------------- پنل سرور مرکزی (فاز ۱۱) ---------------------- */
+
+function setBackendNote(message, tone = '') {
+  const note = document.getElementById('backend-note');
+  if (!note) return;
+  note.textContent = message;
+  note.dataset.tone = tone;
+}
+
+function renderBackendPanel() {
+  const server = backendState.mode === 'server';
+  const status = document.getElementById('backend-status');
+  const chip = document.getElementById('mode-chip');
+  const urlInput = document.getElementById('backend-url');
+  const health = backendState.health;
+  if (urlInput && document.activeElement !== urlInput) urlInput.value = backendBase();
+  if (status) {
+    status.textContent = server
+      ? `متصل به سرور مرکزی — نسخه ${health?.version ?? '—'} — ${fmt(health?.users ?? 0)} کاربر و ${fmt(health?.audit ?? 0)} رویداد در سرور`
+      : 'حالت محلی — بدون سرور؛ کاربران، داده‌ها و گزارش فعالیت فقط در همین مرورگر';
+  }
+  if (chip) {
+    chip.hidden = false;
+    chip.textContent = server ? 'سرور مرکزی' : 'حالت محلی';
+    chip.classList.toggle('st-1', server);
+    chip.classList.toggle('neutral', !server);
+    chip.title = server ? 'احراز هویت و گزارش فعالیت روی سرور' : 'نسخه استاتیک؛ احراز هویت در مرورگر';
+  }
+  for (const id of ['backend-verify', 'backend-backup', 'backend-restore', 'backend-sync-audit']) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = !server || !backendState.token;
+  }
+}
+
+function backendSnapshot() {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    workshops: state.store.workshops,
+    activeWorkshopId: state.store.activeWorkshopId ?? null,
+    units: state.store.units ?? [],
+    jobs: state.store.jobs ?? [],
+    employees: state.store.employees ?? [],
+  };
+}
+
+function initBackendPanel() {
+  const connect = document.getElementById('backend-connect');
+  if (connect) {
+    connect.addEventListener('click', async () => {
+      const urlInput = document.getElementById('backend-url');
+      const base = (urlInput?.value || './api').trim().replace(/\/+$/, '');
+      saveBackendConfig(base);
+      setBackendNote('در حال بررسی سرور…');
+      const found = await detectBackend();
+      renderBackendPanel();
+      if (!found) {
+        setBackendNote('سروری یافت نشد؛ حالت محلی فعال است. برای راه‌اندازی: npm run serve:api', 'warn');
+        return;
+      }
+      await refreshServerStatus();
+      setBackendNote('سرور مرکزی در دسترس است. برای استفاده، خارج و با حساب سروری وارد شوید.', 'ok');
+      backendState.token = readBackendToken() || null;
+      if (!backendState.token) showAuthGate();
+    });
+  }
+
+  const refresh = document.getElementById('backend-refresh');
+  if (refresh) {
+    refresh.addEventListener('click', async () => {
+      await detectBackend();
+      renderBackendPanel();
+      setBackendNote(backendState.mode === 'server' ? 'وضعیت سرور به‌روزرسانی شد.' : 'سروری در دسترس نیست؛ حالت محلی.', backendState.mode === 'server' ? 'ok' : 'warn');
+    });
+  }
+
+  const verify = document.getElementById('backend-verify');
+  if (verify) {
+    verify.addEventListener('click', async () => {
+      if (backendState.mode !== 'server' || !backendState.token) return;
+      try {
+        const result = await apiFetch('/audit/verify');
+        backendState.verified = result;
+        setBackendNote(
+          result.ok
+            ? `زنجیره گزارش فعالیت سرور سالم است: ${fmt(result.count)} رویداد پیاپی بدون شکست.`
+            : `زنجیره گزارش فعالیت در رویداد ${fmt(result.brokenAt)} شکسته است؛ گزارش سرور قابل اتکا نیست.`,
+          result.ok ? 'ok' : 'error',
+        );
+        logActivity('security', 'EXPORT', `بازبینی زنجیره گزارش سرور: ${result.ok ? 'سالم' : 'شکسته'} (${result.count} رویداد)`);
+      } catch (error) {
+        setBackendNote(`بازبینی ناموفق بود: ${error.message}`, 'error');
+      }
+    });
+  }
+
+  const backup = document.getElementById('backend-backup');
+  if (backup) {
+    backup.addEventListener('click', async () => {
+      if (backendState.mode !== 'server' || !backendState.token) return;
+      try {
+        const result = await apiFetch('/backup', { method: 'PUT', body: { snapshot: backendSnapshot() } });
+        setBackendNote(`پشتیبان مرکزی نسخه ${fmt(result.version)} ثبت شد.`, 'ok');
+        logActivity('settings', 'BACKUP', `ارسال پشتیبان به سرور — نسخه ${result.version}`);
+      } catch (error) {
+        setBackendNote(`ثبت پشتیبان ناموفق بود: ${error.message}`, 'error');
+      }
+    });
+  }
+
+  const restore = document.getElementById('backend-restore');
+  if (restore) {
+    restore.addEventListener('click', async () => {
+      if (backendState.mode !== 'server' || !backendState.token) return;
+      try {
+        const result = await apiFetch('/backup');
+        if (!result.backup) {
+          setBackendNote('هیچ پشتیبانی روی سرور ثبت نشده است.', 'warn');
+          return;
+        }
+        const confirmed = typeof window.confirm === 'function'
+          ? window.confirm(`بازیابی پشتیبان نسخه ${result.backup.version} از سرور؟ داده‌های محلی جایگزین می‌شوند.`)
+          : true;
+        if (!confirmed) return;
+        const snapshot = result.backup.snapshot ?? {};
+        writeStore({
+          workshops: Array.isArray(snapshot.workshops) ? snapshot.workshops : [],
+          activeWorkshopId: snapshot.activeWorkshopId ?? null,
+          units: Array.isArray(snapshot.units) ? snapshot.units : [],
+          jobs: Array.isArray(snapshot.jobs) ? snapshot.jobs : [],
+          employees: Array.isArray(snapshot.employees) ? snapshot.employees : [],
+        });
+        renderSettingsMeta();
+        setBackendNote(`پشتیبان نسخه ${fmt(result.backup.version)} از سرور بازیابی شد.`, 'ok');
+        logActivity('settings', 'RESTORE', `بازیابی پشتیبان سرور — نسخه ${result.backup.version}`);
+      } catch (error) {
+        setBackendNote(`بازیابی ناموفق بود: ${error.message}`, 'error');
+      }
+    });
+  }
+
+  const sync = document.getElementById('backend-sync-audit');
+  if (sync) {
+    sync.addEventListener('click', async () => {
+      if (backendState.mode !== 'server' || !backendState.token) return;
+      const rows = [...(state.store.activityLog ?? [])].slice(-200);
+      if (rows.length === 0) {
+        setBackendNote('رویداد محلی برای ارسال وجود ندارد.', 'warn');
+        return;
+      }
+      let sent = 0;
+      for (const row of rows) {
+        try {
+          await apiFetch('/activity', {
+            method: 'POST',
+            body: { module: row.module, action: row.action, detail: `[آینه محلی] ${row.detail}`, workshopId: row.workshopId ?? null },
+          });
+          sent += 1;
+        } catch (error) {
+          setBackendNote(`ارسال رویدادها در ${fmt(sent)} متوقف شد: ${error.message}`, 'error');
+          return;
+        }
+      }
+      setBackendNote(`${fmt(sent)} رویداد محلی به گزارش سرور آینه شد.`, 'ok');
+    });
+  }
+
+  renderBackendPanel();
 }
 
 /* ================================== شروع ================================== */
@@ -6174,9 +6569,25 @@ async function boot() {
     return;
   }
 
+  await detectBackend();
+  if (backendState.mode === 'server') {
+    backendState.token = readBackendToken() || null;
+    await refreshServerStatus();
+    if (backendState.token) {
+      try {
+        const payload = await apiFetch('/auth/me');
+        authState.user = mapServerUser(payload.user);
+        await refreshServerUsers();
+      } catch {
+        writeBackendToken('');
+      }
+    }
+  }
+
   bindAuthForms();
   if (!currentUser()) {
     showAuthGate();
+    renderBackendPanel();
     return;
   }
   startApp();
@@ -6203,6 +6614,7 @@ function startApp() {
   initReports();
   initSettings();
   initUsers();
+  initBackendPanel();
 
   const printButton = document.getElementById('print-btn');
   if (printButton) {
