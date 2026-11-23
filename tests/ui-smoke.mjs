@@ -598,6 +598,15 @@ setSelect('#emp-filter-unit', '');
 setSelect('#emp-filter-status', 'TERMINATED');
 assert('فیلتر وضعیت: بدون نتیجه', text('#emp-table').includes('یافت نشد'), text('#emp-table').slice(0, 60));
 setSelect('#emp-filter-status', '');
+
+/* حفاظت از حذف شغل دارای کارمند */
+click('.nav-item[data-route="jobs"]');
+const jobsBeforeGuard = document.querySelectorAll('#jobs-table tbody tr').length;
+const linkedJobRow = [...document.querySelectorAll('#jobs-table tbody tr')].find((row) => row.textContent.includes(linkedJob.jobCode));
+linkedJobRow?.querySelector('button[data-action="delete"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+assert('حذف شغل: شغل دارای کارمند حذف نشد', document.querySelectorAll('#jobs-table tbody tr').length === jobsBeforeGuard, String(document.querySelectorAll('#jobs-table tbody tr').length));
+contains('حذف شغل: پیام اتصال کارمند', text('#toast'), 'کارمند به این شغل متصل است');
+click('.nav-item[data-route="employees"]');
 setInput('emp-search', 'کریمی');
 assert('جستجوی کارمند', document.querySelectorAll('#emp-table tbody tr').length === 1, String(document.querySelectorAll('#emp-table tbody tr').length));
 setInput('emp-search', '');
@@ -799,6 +808,9 @@ click('.nav-item[data-route="reports"]');
 assert('مسیریابی به گزارش‌ها', document.querySelector('#view-reports')?.classList.contains('is-active'));
 assert('گزارش‌ساز: ۱۲ نوع گزارش', document.querySelectorAll('#rp-type option').length === 12, String(document.querySelectorAll('#rp-type option').length));
 
+click('#rp-print');
+contains('چاپ گزارش: جلوگیری از چاپ برگه خالی', text('#toast'), 'ابتدا گزارش را بسازید');
+
 click('#rp-build');
 assert('گزارش: برگه ساخته شد', document.querySelector('#rp-sheet')?.hidden === false);
 contains('گزارش: سربرگ شرکت', text('#rp-letterhead'), 'شرکت نمونه صنعت');
@@ -882,6 +894,11 @@ try {
 }
 assert('گزارش: خروجی CSV بدون خطا', reportExportOk);
 assert('گزارش: چاپ موجود است', document.querySelector('#rp-print') !== null);
+click('#rp-print');
+contains('چاپ گزارش: جهت افقی صفحه', document.querySelector('#print-page-style')?.textContent ?? '', 'landscape');
+assert('چاپ گزارش: کلاس جهت روی body', document.body.classList.contains('print-landscape'));
+click('#print-btn');
+contains('چاپ کلی: گزارش در حالت افقی', document.querySelector('#print-page-style')?.textContent ?? '', 'landscape');
 
 /* مقایسه مشاغل با ۱۰ معیار */
 const jobsForCompare = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs;
@@ -1021,6 +1038,26 @@ assert('سرور: دکمه بازبینی در حالت محلی غیرفعال'
 assert('سرور: دکمه پشتیبان مرکزی در حالت محلی غیرفعال', document.querySelector('#backend-backup')?.disabled === true);
 click('#backend-refresh');
 assert('سرور: پیام بررسی وضعیت محلی', await waitFor(() => text('#backend-note').includes('سروری در دسترس نیست'), 3000), text('#backend-note'));
+
+/* ------------- بازنشانی نتایج موقت با تغییر کارگاه فعال ------------- */
+
+click('.nav-item[data-route="payroll"]');
+assert('تغییر کارگاه: فیش‌های کارگاه اول موجود است', payrollRowsCount() > 0, String(payrollRowsCount()));
+click('.nav-item[data-route="arrears"]');
+setField('ar-increase', 10);
+click('#ar-calc');
+assert('تغییر کارگاه: معوقات کارگاه اول محاسبه شد', document.querySelectorAll('#ar-table tbody tr').length === 4, String(document.querySelectorAll('#ar-table tbody tr').length));
+setSelect('#active-workshop', secondWorkshopId);
+assert('تغییر کارگاه: پاک شدن فیش‌های کارگاه قبلی', payrollRowsCount() === 0, String(payrollRowsCount()));
+assert('تغییر کارگاه: پنهان شدن گزارش قبلی', document.querySelector('#rp-sheet')?.hidden === true);
+contains('تغییر کارگاه: پیام ساخت گزارش جدید', text('#rp-msg'), 'کارگاه فعال تغییر کرد');
+click('#pr-print');
+contains('چاپ حقوق: جلوگیری از چاپ فیش خالی', text('#toast'), 'ابتدا حقوق ماه را محاسبه کنید');
+click('#ar-print');
+contains('چاپ معوقات: جلوگیری از چاپ جدول خالی', text('#toast'), 'ابتدا معوقات دوره را محاسبه کنید');
+assert('تغییر کارگاه: پاک شدن فیلتر واحد مشاغل', selectValueOf('#jobs-filter-unit') === '');
+setSelect('#active-workshop', firstWorkshopId);
+assert('تغییر کارگاه: بازگشت به کارگاه اول', text('#jobs-table').includes('J-1001') || document.querySelector('#view-payroll') !== null);
 
 /* --------------------------- امنیت و نقش‌ها (فاز ۱۰) --------------------------- */
 

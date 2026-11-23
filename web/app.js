@@ -157,7 +157,11 @@ function writeStore(patch) {
     activityLog: state.store.activityLog ?? [],
     ...patch,
   };
+  const previousWorkshopId = state.store.activeWorkshopId ?? null;
   state.store = next;
+  if (state.data && (state.store.activeWorkshopId ?? null) !== previousWorkshopId) {
+    resetWorkshopScopedState();
+  }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   } catch (error) {
@@ -178,6 +182,50 @@ function writeStore(patch) {
   }
 }
 
+
+/* هنگام تغییر کارگاه فعال، نتایج موقت (فیلترها، حقوق، معوقات، گزارش) پاک می‌شود */
+function resetWorkshopScopedState() {
+  jobsFilter.search = '';
+  jobsFilter.unit = '';
+  jobsFilter.group = '';
+  for (const id of ['jobs-search', 'jobs-filter-unit', 'jobs-filter-group']) {
+    const element = document.getElementById(id);
+    if (element) setElementValue(element, '');
+  }
+
+  payrollState.rows = [];
+  const payrollDetail = document.getElementById('pr-detail-card');
+  if (payrollDetail) payrollDetail.hidden = true;
+  const payrollMessage = document.getElementById('pr-msg');
+  if (payrollMessage) payrollMessage.textContent = '';
+  const payrollSummary = document.getElementById('pr-summary');
+  if (payrollSummary) payrollSummary.innerHTML = '';
+  const payrollCount = document.getElementById('pr-count');
+  if (payrollCount) payrollCount.textContent = '۰ فیش';
+  renderPayrollTable();
+
+  arrearsState = { ...arrearsState, rows: [], employeeId: null };
+  const arrearsDetail = document.getElementById('ar-detail-card');
+  if (arrearsDetail) arrearsDetail.hidden = true;
+  renderArrearsView();
+
+  reportState.columns = [];
+  reportState.rows = [];
+  reportState.title = '';
+  for (const id of ['rp-letterhead', 'rp-body', 'rp-footer']) {
+    const part = document.getElementById(id);
+    if (part) part.innerHTML = '';
+  }
+  const sheet = document.getElementById('rp-sheet');
+  if (sheet) sheet.hidden = true;
+  const reportMessage = document.getElementById('rp-msg');
+  if (reportMessage) reportMessage.textContent = 'کارگاه فعال تغییر کرد؛ برای کارگاه جدید ابتدا گزارش را بسازید.';
+
+  if (document.querySelector('.nav-item.is-active')?.dataset?.route === 'job-profile') {
+    navigate('jobs');
+  }
+}
+
 function newId(prefix) {
   const random = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
   return `${prefix}-${random.slice(0, 8)}`;
@@ -190,6 +238,31 @@ function activeWorkshop() {
 }
 
 let toastTimer = null;
+
+/* ---------------------------- چاپ و جهت کاغذ ---------------------------- */
+
+const LANDSCAPE_ROUTES = new Set(['jobs', 'org', 'employees', 'payroll', 'arrears', 'reports']);
+
+function setPrintOrientation(landscape) {
+  const style = document.getElementById('print-page-style');
+  if (style) {
+    style.textContent = landscape
+      ? '@page { size: A4 landscape; margin: 10mm; }'
+      : '@page { size: A4 portrait; margin: 12mm; }';
+  }
+  document.body.classList.toggle('print-landscape', Boolean(landscape));
+}
+
+function doPrint({ landscape = false } = {}) {
+  setPrintOrientation(landscape);
+  if (typeof window.print === 'function') window.print();
+}
+
+function reportSheetReady() {
+  const sheet = document.getElementById('rp-sheet');
+  return Boolean(sheet && !sheet.hidden && String(sheet.innerHTML ?? '').trim().length > 0);
+}
+
 function showToast(message) {
   const toast = document.getElementById('toast');
   if (!toast) return;
@@ -305,6 +378,15 @@ function navigate(route, options = {}) {
   if (target === 'arrears') renderArrearsView();
   if (target === 'reports') renderReportsView();
   if (target === 'users') renderUsersView();
+  if (target === 'job-profile') {
+    const job = profileJobId ? jobById(profileJobId) : null;
+    if (!job) {
+      showToast('برای مشاهده شناسنامه، یک شغل را انتخاب کنید');
+      navigate('jobs', { silent: true });
+      return;
+    }
+    renderJobProfile(job);
+  }
   applyRouteAccess(target);
   if (target === 'jobs') renderJobsView();
   if (target === 'evaluation') renderEvalJobOptions();
@@ -1433,14 +1515,17 @@ function initJobs() {
 
   const printList = document.getElementById('jobs-print-list');
   if (printList) {
-    printList.addEventListener('click', () => {
-      if (typeof window.print === 'function') window.print();
-    });
+    printList.addEventListener('click', () => doPrint({ landscape: true }));
   }
   const profilePrint = document.getElementById('profile-print');
   if (profilePrint) {
     profilePrint.addEventListener('click', () => {
-      if (typeof window.print === 'function') window.print();
+      const body = document.getElementById('job-profile-body');
+      if (!body || !String(body.innerHTML ?? '').trim()) {
+        showToast('ابتدا یک شغل را برای شناسنامه انتخاب کنید');
+        return;
+      }
+      doPrint({ landscape: false });
     });
   }
   const profileBack = document.getElementById('profile-back');
@@ -1709,6 +1794,11 @@ function duplicateJob(job) {
 
 function deleteJob(job) {
   if (!ensureAdmin('حذف شغل')) return;
+  const linked = workshopEmployees().filter((employee) => employee.jobId === job.id);
+  if (linked.length > 0) {
+    showToast(`${fmt(linked.length)} کارمند به این شغل متصل است؛ ابتدا شغل آن‌ها را تغییر دهید`);
+    return;
+  }
   const confirmed = typeof window.confirm === 'function'
     ? window.confirm(`حذف شغل «${job.title}»؟ این عمل قابل بازگشت نیست.`)
     : true;
@@ -2852,9 +2942,7 @@ function initOrg() {
 
   const print = document.getElementById('org-print');
   if (print) {
-    print.addEventListener('click', () => {
-      if (typeof window.print === 'function') window.print();
-    });
+    print.addEventListener('click', () => doPrint({ landscape: true }));
   }
 
   renderOrgView();
@@ -3335,9 +3423,7 @@ function initEmployees() {
 
   const printButton = document.getElementById('emp-print');
   if (printButton) {
-    printButton.addEventListener('click', () => {
-      if (typeof window.print === 'function') window.print();
-    });
+    printButton.addEventListener('click', () => doPrint({ landscape: true }));
   }
 
   const promoButton = document.getElementById('promo-save');
@@ -4146,7 +4232,11 @@ function initPayrollMonthly() {
   const print = document.getElementById('pr-print');
   if (print) {
     print.addEventListener('click', () => {
-      if (typeof window.print === 'function') window.print();
+      if (payrollState.rows.length === 0) {
+        showToast('ابتدا حقوق ماه را محاسبه کنید، سپس چاپ بگیرید');
+        return;
+      }
+      doPrint({ landscape: true });
     });
   }
   const exportButton = document.getElementById('pr-export');
@@ -4436,7 +4526,11 @@ function initArrears() {
   const print = document.getElementById('ar-print');
   if (print) {
     print.addEventListener('click', () => {
-      if (typeof window.print === 'function') window.print();
+      if (arrearsState.rows.length === 0) {
+        showToast('ابتدا معوقات دوره را محاسبه کنید، سپس چاپ بگیرید');
+        return;
+      }
+      doPrint({ landscape: true });
     });
   }
   const exportButton = document.getElementById('ar-export');
@@ -4841,7 +4935,11 @@ function initReports() {
   const print = document.getElementById('rp-print');
   if (print) {
     print.addEventListener('click', () => {
-      if (typeof window.print === 'function') window.print();
+      if (!reportSheetReady()) {
+        showToast('ابتدا گزارش را بسازید، سپس چاپ کنید');
+        return;
+      }
+      doPrint({ landscape: true });
     });
   }
   const exportButton = document.getElementById('rp-export');
@@ -6880,9 +6978,11 @@ function startApp() {
   const printButton = document.getElementById('print-btn');
   if (printButton) {
     printButton.addEventListener('click', () => {
-      if (typeof window.print === 'function') window.print();
+      const route = document.querySelector('.nav-item.is-active')?.dataset?.route ?? DEFAULT_ROUTE;
+      doPrint({ landscape: LANDSCAPE_ROUTES.has(route) });
     });
   }
+  window.addEventListener?.('afterprint', () => setPrintOrientation(false));
 
   const banner = document.getElementById('offline-banner');
   if (banner) banner.hidden = false;

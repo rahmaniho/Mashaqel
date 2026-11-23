@@ -71,6 +71,9 @@ jobs:
       - name: آزمون یکپارچه رابط کاربری با سرور مرکزی
         run: npm run test:web-server
 
+      - name: بازبینی سبک چاپ و PDF (A4، جدول بلند، تکرار سرستون)
+        run: npm run check:print
+
       - name: بازبینی بسته استقرار سازمانی
         run: npm run check:deploy
 

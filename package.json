@@ -17,7 +17,8 @@
     "test:web-server": "node --no-warnings tests/ui-server-mode.mjs",
     "test:server": "node --no-warnings --test tests/server.test.mjs",
     "test:sso": "node --no-warnings --test tests/sso.test.mjs",
-    "check:deploy": "node --no-warnings --experimental-strip-types scripts/checkDeploy.ts"
+    "check:deploy": "node --no-warnings --experimental-strip-types scripts/checkDeploy.ts",
+    "check:print": "node --no-warnings --experimental-strip-types scripts/checkPrintStyles.ts"
   },
   "engines": {
     "node": ">=22.6.0"
