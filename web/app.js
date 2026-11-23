@@ -13,7 +13,7 @@ const state = {
   groupResult: null,
   evalResult: null,
   evalControls: [],
-  store: { workshops: [], activeWorkshopId: null, jobs: [] },
+  store: { workshops: [], activeWorkshopId: null, units: [], jobs: [] },
 };
 
 const NUMBER_FORMAT = {
@@ -136,10 +136,11 @@ function readStore() {
     return {
       workshops: Array.isArray(parsed?.workshops) ? parsed.workshops : [],
       activeWorkshopId: parsed?.activeWorkshopId ?? null,
+      units: Array.isArray(parsed?.units) ? parsed.units : [],
       jobs: Array.isArray(parsed?.jobs) ? parsed.jobs : [],
     };
   } catch {
-    return { workshops: [], activeWorkshopId: null, jobs: [] };
+    return { workshops: [], activeWorkshopId: null, units: [], jobs: [] };
   }
 }
 
@@ -147,6 +148,7 @@ function writeStore(patch) {
   const next = {
     workshops: state.store.workshops,
     activeWorkshopId: state.store.activeWorkshopId,
+    units: state.store.units ?? [],
     jobs: state.store.jobs ?? [],
     ...patch,
   };
@@ -163,6 +165,7 @@ function writeStore(patch) {
     renderJobsView();
     renderEvalJobOptions();
     renderGroupJobsComparison();
+    renderOrgView();
     renderSettingsMeta();
   }
 }
@@ -198,6 +201,11 @@ const ROUTES = {
     title: 'مدیریت کارگاه‌ها',
     subtitle: 'تعریف کارگاه، شناسه‌ها و وضعیت اجرای طرح طبقه‌بندی',
     view: 'view-workshops',
+  },
+  org: {
+    title: 'ساختار سازمانی',
+    subtitle: 'درخت واحدها، کد یکتا، واحد بالادست و اتصال مشاغل به واحدها',
+    view: 'view-org',
   },
   jobs: {
     title: 'بانک مشاغل',
@@ -258,6 +266,7 @@ function navigate(route, options = {}) {
     if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   if (target === 'dashboard') renderDashboard();
+  if (target === 'org') renderOrgView();
   if (target === 'jobs') renderJobsView();
   if (target === 'evaluation') renderEvalJobOptions();
   if (target === 'group') renderGroupJobsComparison();
@@ -789,6 +798,7 @@ function renderSettingsMeta() {
     ['واحد پول', 'IRR (ریال ایران)'],
     ['زمان تولید داده', new Date(meta.generatedAt).toLocaleString('fa-IR')],
     ['کارگاه‌های ثبت‌شده', fmt(state.store.workshops.length)],
+    ['واحدهای سازمانی', fmt(state.store.units.length)],
     ['مشاغل ثبت‌شده', fmt(state.store.jobs.length)],
     ['مشاغل ارزیابی‌شده', fmt(state.store.jobs.filter((job) => job.evaluation).length)],
     ['کلید ذخیره‌سازی محلی', STORAGE_KEY],
@@ -1398,13 +1408,19 @@ function renderJobsView() {
   if (!hasWorkshop) return;
   renderJobsFilters();
   renderJobsTable();
+  renderJobUnitOptions(selectValue(document.getElementById('jf-unit-link'), ''));
 }
 
 function renderJobsFilters() {
   const jobs = workshopJobs();
   const unitSelect = document.getElementById('jobs-filter-unit');
   if (unitSelect) {
-    const units = [...new Set(jobs.map((job) => job.orgUnit).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fa'));
+    const units = [
+      ...new Set([
+        ...workshopUnits().map((unit) => unit.title),
+        ...jobs.map((job) => job.orgUnit),
+      ].filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b, 'fa'));
     unitSelect.innerHTML =
       '<option value="">همه واحدها</option>' +
       units.map((unit) => `<option value="${escapeHtml(unit)}">${escapeHtml(unit)}</option>`).join('');
@@ -1475,7 +1491,10 @@ function renderJobsTable() {
               <strong>${escapeHtml(job.title)}</strong>
               ${job.titleEn ? `<div class="small muted" dir="ltr">${escapeHtml(job.titleEn)}</div>` : ''}
             </td>
-            <td>${escapeHtml(job.orgUnit)}</td>
+            <td>
+              ${escapeHtml(job.orgUnit)}
+              ${job.unitId && unitById(job.unitId) ? `<div class="small muted">کد واحد: ${escapeHtml(unitById(job.unitId).code)}</div>` : ''}
+            </td>
             <td class="num">${escapeHtml(job.supervisorJobCode || '—')}</td>
             <td class="num">${fmt(job.headcount)}</td>
             <td class="num">${evaluation ? fmt(evaluation.totalScore, 1) : '—'}</td>
@@ -1509,6 +1528,7 @@ function openJobForm(job) {
   setElementValue(document.getElementById('jf-title'), job?.title ?? '');
   setElementValue(document.getElementById('jf-title-en'), job?.titleEn ?? '');
   setElementValue(document.getElementById('jf-unit'), job?.orgUnit ?? '');
+  renderJobUnitOptions(job?.unitId ?? '');
   setElementValue(document.getElementById('jf-supervisor'), job?.supervisorJobCode ?? '');
   setElementValue(document.getElementById('jf-headcount'), job?.headcount ?? 0);
   setElementValue(document.getElementById('jf-status'), job?.status ?? 'ACTIVE');
@@ -1552,7 +1572,11 @@ function saveJobFromForm() {
     jobCode: document.getElementById('jf-code').value.trim(),
     title: document.getElementById('jf-title').value.trim(),
     titleEn: document.getElementById('jf-title-en').value.trim(),
-    orgUnit: document.getElementById('jf-unit').value.trim(),
+    unitId: selectValue(document.getElementById('jf-unit-link'), '') || null,
+    orgUnit: (() => {
+      const linked = unitById(selectValue(document.getElementById('jf-unit-link'), ''));
+      return linked ? linked.title : document.getElementById('jf-unit').value.trim();
+    })(),
     supervisorJobCode: document.getElementById('jf-supervisor').value.trim(),
     headcount: Number(document.getElementById('jf-headcount').value || 0),
     status: selectValue(document.getElementById('jf-status'), 'ACTIVE'),
@@ -1681,7 +1705,7 @@ function renderJobProfile(job) {
     <table class="data-table profile-table">
       <tbody>
         <tr><th>کد شغل</th><td class="num">${escapeHtml(job.jobCode)}</td><th>عنوان شغل</th><td>${escapeHtml(job.title)}</td></tr>
-        <tr><th>عنوان انگلیسی</th><td dir="ltr">${escapeHtml(job.titleEn || '—')}</td><th>واحد سازمانی</th><td>${escapeHtml(job.orgUnit)}</td></tr>
+        <tr><th>عنوان انگلیسی</th><td dir="ltr">${escapeHtml(job.titleEn || '—')}</td><th>واحد سازمانی</th><td>${escapeHtml(job.orgUnit)}${job.unitId && unitById(job.unitId) ? `<span class="small muted"> — کد واحد ${escapeHtml(unitById(job.unitId).code)} (سطح ${fmt(unitDepth(unitById(job.unitId)))})</span>` : ''}</td></tr>
         <tr><th>کارگاه</th><td>${escapeHtml(workshop?.workshopName ?? '—')}</td><th>شرکت</th><td>${escapeHtml(workshop?.companyName ?? '—')}</td></tr>
         <tr><th>سرپرست مستقیم</th><td class="num">${escapeHtml(job.supervisorJobCode || '—')}</td><th>تعداد نیرو تحت سرپرستی</th><td class="num">${fmt(job.headcount)}</td></tr>
         <tr><th>وضعیت شغل</th><td>${JOB_STATUS_LABELS[job.status] ?? job.status}</td><th>نسخه شناسنامه</th><td class="num">${escapeHtml(job.version)}</td></tr>
@@ -2642,6 +2666,426 @@ function saveEvaluationToJob(result, match) {
   renderJobsTable();
 }
 
+
+/* ============================ ساختار سازمانی ============================ */
+
+const UNIT_TYPE_LABELS = { LINE: 'صفی', STAFF: 'ستادی', PRODUCTION: 'تولیدی', SUPPORT: 'پشتیبانی' };
+const UNIT_STATUS_LABELS = { ACTIVE: 'فعال', INACTIVE: 'غیرفعال' };
+const UNIT_MAX_DEPTH = 6;
+const UNIT_CODE_PATTERN = /^[0-9A-Za-z\u0600-\u06FF][0-9A-Za-z\u0600-\u06FF_-]{1,23}$/;
+
+function workshopUnits() {
+  const workshop = activeWorkshop();
+  if (!workshop) return [];
+  return state.store.units.filter((unit) => unit.workshopId === workshop.id);
+}
+
+function unitById(id) {
+  return state.store.units.find((unit) => unit.id === id) ?? null;
+}
+
+function unitDepth(unit) {
+  let depth = 1;
+  let cursor = unit;
+  const seen = new Set([unit.id]);
+  while (cursor?.parentId) {
+    const parent = unitById(cursor.parentId);
+    if (!parent || seen.has(parent.id)) break;
+    seen.add(parent.id);
+    depth += 1;
+    cursor = parent;
+  }
+  return depth;
+}
+
+function unitPath(unit) {
+  const titles = [];
+  let cursor = unit;
+  const seen = new Set();
+  while (cursor && !seen.has(cursor.id)) {
+    seen.add(cursor.id);
+    titles.unshift(cursor.title);
+    cursor = cursor.parentId ? unitById(cursor.parentId) : null;
+  }
+  return titles.join(' ← ');
+}
+
+function unitDescendantIds(id) {
+  const collected = [];
+  const queue = [id];
+  const seen = new Set([id]);
+  while (queue.length > 0) {
+    const current = queue.shift();
+    for (const unit of state.store.units) {
+      if (unit.parentId === current && !seen.has(unit.id)) {
+        seen.add(unit.id);
+        collected.push(unit.id);
+        queue.push(unit.id);
+      }
+    }
+  }
+  return collected;
+}
+
+/** ترتیب نمایش درختی: ریشه‌ها و سپس فرزندان به ترتیب کد. */
+function unitsTreeOrder(units) {
+  const known = new Set(units.map((unit) => unit.id));
+  const childrenOf = new Map();
+  for (const unit of units) {
+    const key = unit.parentId && known.has(unit.parentId) ? unit.parentId : null;
+    if (!childrenOf.has(key)) childrenOf.set(key, []);
+    childrenOf.get(key).push(unit);
+  }
+  for (const list of childrenOf.values()) {
+    list.sort((a, b) => String(a.code).localeCompare(String(b.code), 'fa'));
+  }
+  const ordered = [];
+  const seen = new Set();
+  const walk = (parentId, depth) => {
+    for (const unit of childrenOf.get(parentId) ?? []) {
+      if (seen.has(unit.id)) continue;
+      seen.add(unit.id);
+      ordered.push({ unit, depth });
+      walk(unit.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return ordered;
+}
+
+function renderJobUnitOptions(selectedId = '') {
+  const select = document.getElementById('jf-unit-link');
+  if (!select) return;
+  const options = unitsTreeOrder(workshopUnits())
+    .map(({ unit, depth }) => `<option value="${escapeHtml(unit.id)}">${'—'.repeat(depth)} ${escapeHtml(unit.code)} — ${escapeHtml(unit.title)}</option>`)
+    .join('');
+  select.innerHTML = `<option value="">— بدون اتصال (متن آزاد) —</option>${options}`;
+  setElementValue(select, selectedId ?? '');
+}
+
+function initOrg() {
+  const newButton = document.getElementById('org-new');
+  if (newButton) newButton.addEventListener('click', () => openOrgForm(null));
+
+  const form = document.getElementById('org-form');
+  if (form) {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      saveUnitFromForm();
+    });
+  }
+  for (const id of ['org-cancel', 'org-cancel-2']) {
+    const button = document.getElementById(id);
+    if (button) button.addEventListener('click', () => closeOrgForm());
+  }
+
+  const tree = document.getElementById('org-tree');
+  if (tree) {
+    tree.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const unit = unitById(button.dataset.id);
+      if (!unit) return;
+      if (button.dataset.action === 'edit') openOrgForm(unit);
+      if (button.dataset.action === 'delete') deleteUnit(unit);
+    });
+  }
+
+  const print = document.getElementById('org-print');
+  if (print) {
+    print.addEventListener('click', () => {
+      if (typeof window.print === 'function') window.print();
+    });
+  }
+
+  renderOrgView();
+}
+
+function openOrgForm(unit) {
+  const form = document.getElementById('org-form');
+  if (!form) return;
+  form.hidden = false;
+  const title = document.getElementById('org-form-title');
+  if (title) title.textContent = unit ? `ویرایش واحد ${unit.code}` : 'واحد سازمانی جدید';
+  setElementValue(document.getElementById('of-id'), unit?.id ?? '');
+  setElementValue(document.getElementById('of-code'), unit?.code ?? '');
+  setElementValue(document.getElementById('of-title'), unit?.title ?? '');
+  setElementValue(document.getElementById('of-type'), unit?.unitType ?? 'LINE');
+  setElementValue(document.getElementById('of-manager'), unit?.managerName ?? '');
+  setElementValue(document.getElementById('of-headcount'), unit?.approvedHeadcount ?? 0);
+  setElementValue(document.getElementById('of-location'), unit?.location ?? '');
+  setElementValue(document.getElementById('of-status'), unit?.active === false ? 'INACTIVE' : 'ACTIVE');
+  setElementValue(document.getElementById('of-description'), unit?.description ?? '');
+  renderOrgParentOptions(unit?.id ?? null, unit?.parentId ?? '');
+  const error = document.getElementById('org-error');
+  if (error) error.textContent = '';
+  form.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+
+function closeOrgForm() {
+  const form = document.getElementById('org-form');
+  if (form) form.hidden = true;
+  const error = document.getElementById('org-error');
+  if (error) error.textContent = '';
+}
+
+function renderOrgParentOptions(excludeId, selectedId = '') {
+  const select = document.getElementById('of-parent');
+  if (!select) return;
+  const blocked = excludeId ? new Set([excludeId, ...unitDescendantIds(excludeId)]) : new Set();
+  const options = unitsTreeOrder(workshopUnits())
+    .filter(({ unit }) => !blocked.has(unit.id))
+    .map(({ unit, depth }) => `<option value="${escapeHtml(unit.id)}">${'—'.repeat(depth)} ${escapeHtml(unit.code)} — ${escapeHtml(unit.title)}</option>`)
+    .join('');
+  select.innerHTML = `<option value="">— سطح اول (بدون بالادست) —</option>${options}`;
+  setElementValue(select, selectedId ?? '');
+}
+
+function saveUnitFromForm() {
+  const workshop = activeWorkshop();
+  const errorTarget = document.getElementById('org-error');
+  if (!workshop) {
+    if (errorTarget) errorTarget.textContent = 'ابتدا یک کارگاه انتخاب کنید.';
+    return;
+  }
+  const id = document.getElementById('of-id').value;
+  const existing = id ? unitById(id) : null;
+  const code = document.getElementById('of-code').value.trim();
+  const title = document.getElementById('of-title').value.trim();
+  const parentId = selectValue(document.getElementById('of-parent'), '') || null;
+
+  const problems = [];
+  if (!UNIT_CODE_PATTERN.test(code)) {
+    problems.push('کد واحد باید ۲ تا ۲۴ نویسه باشد و فقط حروف، رقم، خط تیره و زیرخط بپذیرد.');
+  }
+  if (!title) problems.push('عنوان واحد الزامی است.');
+  const duplicate = workshopUnits().find(
+    (unit) => unit.id !== existing?.id && unit.code.toLowerCase() === code.toLowerCase(),
+  );
+  if (duplicate && code) problems.push(`کد واحد «${code}» قبلاً برای «${duplicate.title}» ثبت شده است.`);
+  if (parentId && parentId === existing?.id) problems.push('واحد نمی‌تواند واحد بالادست خودش باشد.');
+  if (parentId && existing?.id && unitDescendantIds(existing.id).includes(parentId)) {
+    problems.push('واحد بالادست نمی‌تواند از زیرمجموعه‌های همین واحد باشد (ایجاد حلقه ممنوع است).');
+  }
+  const parent = parentId ? unitById(parentId) : null;
+  if (parent && unitDepth(parent) + 1 > UNIT_MAX_DEPTH) {
+    problems.push(`عمق ساختار سازمانی بیش از ${fmt(UNIT_MAX_DEPTH)} سطح مجاز نیست.`);
+  }
+  if (problems.length > 0) {
+    if (errorTarget) errorTarget.textContent = problems.join(' ');
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const unit = {
+    id: existing?.id ?? newId('unit'),
+    workshopId: existing?.workshopId ?? workshop.id,
+    code,
+    title,
+    parentId,
+    unitType: selectValue(document.getElementById('of-type'), 'LINE'),
+    managerName: document.getElementById('of-manager').value.trim(),
+    approvedHeadcount: Math.max(0, Number(document.getElementById('of-headcount').value || 0)),
+    location: document.getElementById('of-location').value.trim(),
+    active: selectValue(document.getElementById('of-status'), 'ACTIVE') === 'ACTIVE',
+    description: document.getElementById('of-description').value.trim(),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+
+  const units = existing
+    ? state.store.units.map((row) => (row.id === unit.id ? unit : row))
+    : [...state.store.units, unit];
+  writeStore({ ...state.store, units });
+  closeOrgForm();
+  renderOrgView();
+  showToast(existing ? 'واحد سازمانی به‌روزرسانی شد' : 'واحد سازمانی ثبت شد');
+}
+
+function deleteUnit(unit) {
+  const errorTarget = document.getElementById('org-error');
+  const children = workshopUnits().filter((row) => row.parentId === unit.id);
+  if (children.length > 0) {
+    const message = `واحد «${unit.title}» ${fmt(children.length)} زیرمجموعه دارد؛ ابتدا زیرمجموعه‌ها را جابه‌جا یا حذف کنید.`;
+    if (errorTarget) errorTarget.textContent = message;
+    showToast(message);
+    return;
+  }
+  const linkedJobs = workshopJobs().filter((job) => job.unitId === unit.id);
+  if (linkedJobs.length > 0) {
+    const message = `به واحد «${unit.title}» ${fmt(linkedJobs.length)} شغل متصل است؛ ابتدا اتصال مشاغل را تغییر دهید.`;
+    if (errorTarget) errorTarget.textContent = message;
+    showToast(message);
+    return;
+  }
+  const confirmed = typeof window.confirm === 'function'
+    ? window.confirm(`حذف واحد «${unit.title}»؟ این عمل قابل بازگشت نیست.`)
+    : true;
+  if (!confirmed) return;
+  writeStore({ ...state.store, units: state.store.units.filter((row) => row.id !== unit.id) });
+  renderOrgView();
+  showToast('واحد سازمانی حذف شد');
+}
+
+function renderOrgView() {
+  const workspace = document.getElementById('org-workspace');
+  const empty = document.getElementById('org-empty-workshop');
+  if (!workspace || !empty) return;
+  const hasWorkshop = Boolean(activeWorkshop());
+  empty.hidden = hasWorkshop;
+  workspace.hidden = !hasWorkshop;
+  if (!hasWorkshop) return;
+  renderOrgKpis();
+  renderOrgTree();
+  renderOrgJobsTable();
+}
+
+function renderOrgKpis() {
+  const target = document.getElementById('org-kpis');
+  if (!target) return;
+  const units = workshopUnits();
+  const ordered = unitsTreeOrder(units);
+  const maxDepth = ordered.reduce((max, row) => Math.max(max, row.depth + 1), 0);
+  const staff = units.filter((unit) => unit.unitType === 'STAFF').length;
+  const line = units.filter((unit) => unit.unitType !== 'STAFF').length;
+  const linkedJobs = workshopJobs().filter((job) => job.unitId && unitById(job.unitId)).length;
+  const cards = [
+    ['واحدهای سازمانی', fmt(units.length)],
+    ['عمق درخت', maxDepth > 0 ? `${fmt(maxDepth)} سطح` : '—'],
+    ['صفی / ستادی', `${fmt(line)} / ${fmt(staff)}`],
+    ['مشاغل متصل به واحد', `${fmt(linkedJobs)} از ${fmt(workshopJobs().length)}`],
+  ];
+  target.innerHTML = `<div class="summary-grid">${cards
+    .map(([label, value]) => `<div class="summary-card"><span class="label">${label}</span><span class="value">${value}</span></div>`)
+    .join('')}</div>`;
+}
+
+function renderOrgTree() {
+  const table = document.getElementById('org-tree');
+  if (!table) return;
+  const counter = document.getElementById('org-count');
+  const units = workshopUnits();
+  const ordered = unitsTreeOrder(units);
+  if (counter) counter.textContent = `${fmt(units.length)} واحد`;
+  if (ordered.length === 0) {
+    table.innerHTML = `
+      <tbody>
+        <tr>
+          <td>
+            <div class="empty-state">
+              هنوز واحدی تعریف نشده است. با دکمه «واحد جدید» ریشه ساختار (مثلاً «مدیریت عامل») و سپس زیرمجموعه‌ها را بسازید.
+            </div>
+          </td>
+        </tr>
+      </tbody>`;
+    return;
+  }
+  const rows = ordered
+    .map(({ unit, depth }) => {
+      const jobCount = workshopJobs().filter((job) => job.unitId === unit.id).length;
+      return `<tr class="${unit.active === false ? 'is-inactive' : ''}">
+        <td>
+          <span class="org-indent" style="padding-right:${depth * 20}px"></span>
+          ${depth > 0 ? '<span class="org-branch">└</span> ' : ''}
+          <strong>${escapeHtml(unit.title)}</strong>
+          ${unit.parentId ? `<div class="small muted">${escapeHtml(unitPath(unit))}</div>` : ''}
+        </td>
+        <td class="num" dir="ltr">${escapeHtml(unit.code)}</td>
+        <td>${UNIT_TYPE_LABELS[unit.unitType] ?? escapeHtml(unit.unitType ?? '')}</td>
+        <td class="num">${fmt(depth + 1)}</td>
+        <td>${escapeHtml(unit.managerName || '—')}</td>
+        <td class="num">${fmt(unit.approvedHeadcount ?? 0)}</td>
+        <td class="num">${fmt(jobCount)}</td>
+        <td>${unit.active === false ? '<span class="chip neutral">غیرفعال</span>' : '<span class="chip st-1">فعال</span>'}</td>
+        <td class="actions-cell no-print">
+          <button type="button" class="icon-btn" data-action="edit" data-id="${escapeHtml(unit.id)}" title="ویرایش">✎</button>
+          <button type="button" class="icon-btn" data-action="delete" data-id="${escapeHtml(unit.id)}" title="حذف">✕</button>
+        </td>
+      </tr>`;
+    })
+    .join('');
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>واحد سازمانی</th><th>کد واحد</th><th>نوع</th><th>سطح</th>
+        <th>مسئول</th><th>نیروی مصوب</th><th>مشاغل</th><th>وضعیت</th><th class="no-print">عملیات</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>`;
+}
+
+function renderOrgJobsTable() {
+  const table = document.getElementById('org-jobs-table');
+  if (!table) return;
+  const units = workshopUnits();
+  const jobs = workshopJobs();
+  const ordered = unitsTreeOrder(units);
+  if (ordered.length === 0) {
+    table.innerHTML = `
+      <tbody>
+        <tr><td><div class="empty-state">پس از تعریف واحدها، شمار مشاغل هر واحد در این جدول نمایش داده می‌شود.</div></td></tr>
+      </tbody>`;
+    return;
+  }
+  let totalJobs = 0;
+  let totalApproved = 0;
+  let totalCurrent = 0;
+  const rows = ordered
+    .map(({ unit, depth }) => {
+      const unitJobs = jobs.filter((job) => job.unitId === unit.id);
+      const current = unitJobs.reduce((sum, job) => sum + Number(job.headcount || 0), 0);
+      const approved = Number(unit.approvedHeadcount ?? 0);
+      totalJobs += unitJobs.length;
+      totalApproved += approved;
+      totalCurrent += current;
+      const gap = approved - current;
+      return `<tr>
+        <td>
+          <span class="org-indent" style="padding-right:${depth * 20}px"></span>
+          ${depth > 0 ? '<span class="org-branch">└</span> ' : ''}
+          ${escapeHtml(unit.title)}
+        </td>
+        <td class="num" dir="ltr">${escapeHtml(unit.code)}</td>
+        <td class="num">${fmt(unitJobs.length)}</td>
+        <td class="small muted">${escapeHtml(unitJobs.map((job) => job.jobCode).join('، ') || '—')}</td>
+        <td class="num">${fmt(approved)}</td>
+        <td class="num">${fmt(current)}</td>
+        <td class="num">${gap === 0 ? '۰' : `${gap > 0 ? '+' : ''}${fmt(gap)}`}</td>
+      </tr>`;
+    })
+    .join('');
+  const unlinked = jobs.filter((job) => !job.unitId || !unitById(job.unitId));
+  const unlinkedCurrent = unlinked.reduce((sum, job) => sum + Number(job.headcount || 0), 0);
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>واحد سازمانی</th><th>کد</th><th>تعداد مشاغل</th><th>کدهای شغل</th>
+        <th>نیروی مصوب</th><th>نیروی فعلی</th><th>شکاف</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows}
+      <tr>
+        <td><strong>بدون اتصال به ساختار</strong></td>
+        <td class="num">—</td>
+        <td class="num">${fmt(unlinked.length)}</td>
+        <td class="small muted">${escapeHtml(unlinked.map((job) => job.jobCode).join('، ') || '—')}</td>
+        <td class="num">—</td>
+        <td class="num">${fmt(unlinkedCurrent)}</td>
+        <td class="num">—</td>
+      </tr>
+      <tr>
+        <td><strong>جمع</strong></td>
+        <td></td>
+        <td class="num"><strong>${fmt(totalJobs + unlinked.length)}</strong></td>
+        <td></td>
+        <td class="num"><strong>${fmt(totalApproved)}</strong></td>
+        <td class="num"><strong>${fmt(totalCurrent + unlinkedCurrent)}</strong></td>
+        <td></td>
+      </tr>
+    </tbody>`;
+}
+
 /* ================================== شروع ================================== */
 
 async function boot() {
@@ -2673,6 +3117,7 @@ async function boot() {
   initGroup();
   initEval();
   initWorkshops();
+  initOrg();
   initJobs();
   initSettings();
 

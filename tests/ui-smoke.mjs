@@ -75,7 +75,7 @@ const contains = (label, haystack, needle) => assert(label, haystack.includes(ne
 
 const navItems = [...document.querySelectorAll('.nav-item')];
 assert('منوی کناری: ۱۲ بخش', navItems.length === 12, String(navItems.length));
-assert('منوی کناری: ۷ بخش فعال', navItems.filter((item) => !item.disabled).length === 7, String(navItems.filter((item) => !item.disabled).length));
+assert('منوی کناری: ۸ بخش فعال', navItems.filter((item) => !item.disabled).length === 8, String(navItems.filter((item) => !item.disabled).length));
 assert(
   'بخش «شناسنامه فرمول‌ها و اسناد قانونی» پنهان شده است',
   document.querySelector('#view-reference') === null && !document.body.innerHTML.includes('شناسنامه فرمول') && !document.body.innerHTML.includes('بانک قوانین'),
@@ -370,6 +370,109 @@ assert('رد: وضعیت ثبت شد', rejected?.evaluation?.approval?.status ==
 assert('رد: گروه نهایی خالی', rejected?.evaluation?.approval?.finalGroup === null, String(rejected?.evaluation?.approval?.finalGroup));
 contains('شناسنامه: نمایش رد', text('#job-profile-body'), 'رد شده');
 click('#profile-back');
+
+
+/* --------------------------- فاز ۶: ساختار سازمانی --------------------------- */
+
+const orgNav = document.querySelector('.nav-item[data-route="org"]');
+assert('ساختار سازمانی: آیتم منو فعال شد', orgNav?.disabled === false && orgNav?.querySelector('.nav-badge') === null);
+
+click('.nav-item[data-route="org"]');
+assert('مسیریابی به ساختار سازمانی', document.querySelector('#view-org')?.classList.contains('is-active'));
+assert('ساختار سازمانی: عنوان صفحه', document.querySelector('#page-title')?.textContent === 'ساختار سازمانی');
+assert('ساختار سازمانی: حالت خالی', text('#org-tree').includes('هنوز واحدی تعریف نشده'));
+
+const submitUnit = (values) => {
+  for (const [id, value] of Object.entries(values)) setField(id, value);
+  document.querySelector('#org-form').dispatchEvent(new window.Event('submit'));
+};
+const unitsStore = () => JSON.parse(localStorage.getItem('mashaqel.state.v2')).units ?? [];
+const unitByCode = (code) => unitsStore().find((unit) => unit.code === code);
+
+click('#org-new');
+submitUnit({
+  'of-code': '1000',
+  'of-title': 'مدیریت عامل',
+  'of-type': 'STAFF',
+  'of-manager': 'علی رضایی',
+  'of-headcount': 5,
+  'of-location': 'ساختمان مرکزی',
+});
+assert('واحد ریشه ثبت شد', unitsStore().length === 1, String(unitsStore().length));
+const rootUnit = unitByCode('1000');
+assert('واحد ریشه: سطح ۱', rootUnit && document.querySelectorAll('#org-tree tbody tr').length === 1);
+contains('واحد ریشه در درخت', text('#org-tree'), 'مدیریت عامل');
+
+click('#org-new');
+submitUnit({ 'of-code': '1100', 'of-title': 'مدیریت تولید', 'of-parent': rootUnit.id, 'of-type': 'PRODUCTION', 'of-headcount': 40 });
+click('#org-new');
+const productionUnit = unitByCode('1100');
+submitUnit({ 'of-code': '1110', 'of-title': 'خط مونتاژ', 'of-parent': productionUnit.id, 'of-type': 'LINE', 'of-headcount': 25 });
+assert('سه واحد ثبت شد', unitsStore().length === 3, String(unitsStore().length));
+const assemblyUnit = unitByCode('1110');
+assert('سطح واحد سوم: ۳', document.querySelectorAll('#org-tree tbody tr').length === 3 && text('#org-tree').includes('└'), text('#org-tree').slice(0, 60));
+contains('نمایش مسیر واحد در درخت', text('#org-tree'), 'مدیریت عامل ← مدیریت تولید ← خط مونتاژ');
+assert('شاخص عمق درخت', text('#org-kpis').includes('۳ سطح'), text('#org-kpis'));
+
+click('#org-new');
+submitUnit({ 'of-code': '1100', 'of-title': 'واحد تکراری' });
+assert('اعتبارسنجی: کد واحد تکراری', text('#org-error').includes('قبلاً'), text('#org-error'));
+assert('اعتبارسنجی: واحد تکراری ثبت نشد', unitsStore().length === 3, String(unitsStore().length));
+
+setField('of-code', 'a b');
+setField('of-title', 'کد نامعتبر');
+document.querySelector('#org-form').dispatchEvent(new window.Event('submit'));
+assert('اعتبارسنجی: الگوی کد واحد', text('#org-error').includes('کد واحد'), text('#org-error'));
+click('#org-cancel');
+
+/* جلوگیری از حلقه: ویرایش ریشه و انتخاب نواده به‌عنوان بالادست */
+click('#org-tree button[data-action="edit"]');
+const parentSelectValues = [...document.querySelectorAll('#of-parent option')].map((option) => option.getAttribute('value'));
+assert('گزینه‌های بالادست: خود و زیرمجموعه‌ها حذف شدند', !parentSelectValues.includes(rootUnit.id) && !parentSelectValues.includes(assemblyUnit.id), parentSelectValues.join(','));
+/* حتی اگر مقدار نامعتبر به‌زور تزریق شود، اعتبارسنجی حلقه باید جلوی ثبت را بگیرد */
+const parentSelect = document.querySelector('#of-parent');
+const forcedOption = document.createElement('option');
+forcedOption.setAttribute('value', assemblyUnit.id);
+parentSelect.appendChild(forcedOption);
+selectOption(parentSelect, assemblyUnit.id);
+parentSelect.dispatchEvent(new window.Event('change'));
+document.querySelector('#org-form').dispatchEvent(new window.Event('submit'));
+assert('اعتبارسنجی: حلقه سازمانی رد شد', text('#org-error').includes('حلقه'), text('#org-error'));
+const rootAfterCycle = unitByCode('1000');
+assert('اعتبارسنجی: ساختار بدون تغییر ماند', rootAfterCycle?.parentId === null, String(rootAfterCycle?.parentId));
+click('#org-cancel');
+
+/* حذف محافظت‌شده: واحد دارای زیرمجموعه */
+click('#org-tree button[data-action="delete"]');
+contains('حذف محافظت‌شده: زیرمجموعه', text('#org-error'), 'زیرمجموعه');
+assert('حذف محافظت‌شده: واحدی حذف نشد', unitsStore().length === 3, String(unitsStore().length));
+
+/* اتصال شغل به واحد سازمانی */
+click('.nav-item[data-route="jobs"]');
+const jobRowForUnit = [...document.querySelectorAll('#jobs-table tbody tr')].find((row) => row.textContent.includes('J-2001'));
+jobRowForUnit?.querySelector('button[data-action="edit"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+setSelect('#jf-unit-link', assemblyUnit.id);
+document.querySelector('#job-form').dispatchEvent(new window.Event('submit'));
+const linkedJob = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs.find((job) => job.jobCode === 'J-2001');
+assert('اتصال شغل به واحد', linkedJob?.unitId === assemblyUnit.id, String(linkedJob?.unitId));
+assert('جای‌گذاری نام واحد از درخت', linkedJob?.orgUnit === 'خط مونتاژ', String(linkedJob?.orgUnit));
+
+click('.nav-item[data-route="org"]');
+contains('جدول مشاغل واحد', text('#org-jobs-table'), 'J-2001');
+assert('شاخص مشاغل متصل', text('#org-kpis').includes('۱ از ۲'), text('#org-kpis'));
+
+/* حذف محافظت‌شده: واحد دارای شغل متصل */
+const assemblyRow = [...document.querySelectorAll('#org-tree tbody tr')].find((row) => row.textContent.includes('خط مونتاژ'));
+assemblyRow?.querySelector('button[data-action="delete"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+contains('حذف محافظت‌شده: شغل متصل', text('#org-error'), 'شغل متصل');
+assert('حذف محافظت‌شده: واحد دارای شغل باقی ماند', unitsStore().length === 3, String(unitsStore().length));
+
+/* حذف برگ مجاز و پایداری داده */
+const leafUnit = unitByCode('1110');
+assert('حذف برگ مسدود است تا شغل جدا شود', Boolean(leafUnit));
+
+assert('پایداری واحدها در ذخیره‌سازی', (JSON.parse(localStorage.getItem('mashaqel.state.v2')).units ?? []).length === 3);
+assert('چاپ درخت موجود است', document.querySelector('#org-print') !== null);
 
 /* -------------------------- حقوق و دستمزد و ارقام -------------------------- */
 

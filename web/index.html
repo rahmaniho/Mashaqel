@@ -36,8 +36,8 @@
           <button class="nav-item" data-route="workshops" type="button">
             <span class="nav-icon" aria-hidden="true">▤</span><span>مدیریت کارگاه‌ها</span>
           </button>
-          <button class="nav-item" data-route="org" type="button" disabled title="فاز ۶ — ساختار سازمانی درختی">
-            <span class="nav-icon" aria-hidden="true">⌸</span><span>ساختار سازمانی</span><span class="nav-badge">فاز ۶</span>
+          <button class="nav-item" data-route="org" type="button">
+            <span class="nav-icon" aria-hidden="true">⌸</span><span>ساختار سازمانی</span>
           </button>
           <button class="nav-item" data-route="jobs" type="button">
             <span class="nav-icon" aria-hidden="true">▦</span><span>بانک مشاغل</span>
@@ -75,7 +75,7 @@
         </nav>
 
         <div class="sidebar-footer">
-          <p class="sidebar-note">نسخه <strong>۲٫۱</strong> — فاز ۳ (بانک مشاغل)</p>
+          <p class="sidebar-note">نسخه <strong>۲٫۴</strong> — فاز ۶ (ساختار سازمانی)</p>
           <p class="sidebar-note small">تمام مبالغ به ریال ایران (IRR)</p>
         </div>
       </aside>
@@ -189,6 +189,98 @@
 
               <div class="table-wrap">
                 <table class="data-table" id="workshop-table"></table>
+              </div>
+            </div>
+          </section>
+
+
+          <!-- --------------------------- ساختار سازمانی --------------------------- -->
+          <section id="view-org" class="view">
+            <div class="panel-head no-print">
+              <div>
+                <h2>ساختار سازمانی کارگاه</h2>
+                <p class="muted">
+                  درخت واحدها با کد یکتا، واحد بالادست، نوع واحد و نیروی مصوب. مشاغل بانک مشاغل به همین واحدها
+                  متصل می‌شوند تا گزارش‌های واحد و طرح طبقه‌بندی یکپارچه باشد.
+                </p>
+              </div>
+              <div class="head-actions">
+                <button class="ghost-btn" type="button" id="org-print">چاپ درخت</button>
+                <button class="primary-btn" type="button" id="org-new">＋ واحد جدید</button>
+              </div>
+            </div>
+
+            <div class="card" id="org-empty-workshop" hidden>
+              <div class="empty-state">
+                برای تعریف ساختار سازمانی، ابتدا یک کارگاه انتخاب کنید. هر درخت سازمانی به کارگاه فعال تعلق دارد.
+                <div style="margin-top: 10px"><button class="primary-btn" type="button" data-route="workshops">رفتن به مدیریت کارگاه‌ها</button></div>
+              </div>
+            </div>
+
+            <div id="org-workspace">
+              <div class="mini-results" id="org-kpis"></div>
+
+              <form id="org-form" class="card no-print" hidden autocomplete="off">
+                <div class="card-head">
+                  <h3 id="org-form-title">واحد سازمانی جدید</h3>
+                  <button class="ghost-btn" type="button" id="org-cancel">انصراف</button>
+                </div>
+                <input type="hidden" id="of-id" />
+                <div class="form-grid">
+                  <label class="field"><span>کد واحد *</span><input id="of-code" required dir="ltr" placeholder="مثلاً PRD-01" /></label>
+                  <label class="field"><span>عنوان واحد *</span><input id="of-title" required placeholder="مثلاً مدیریت تولید" /></label>
+                  <label class="field"><span>واحد بالادست</span><select id="of-parent"></select></label>
+                  <label class="field">
+                    <span>نوع واحد</span>
+                    <select id="of-type">
+                      <option value="LINE">صفی</option>
+                      <option value="STAFF">ستادی</option>
+                      <option value="PRODUCTION">تولیدی</option>
+                      <option value="SUPPORT">پشتیبانی</option>
+                    </select>
+                  </label>
+                  <label class="field"><span>مسئول واحد</span><input id="of-manager" /></label>
+                  <label class="field"><span>نیروی مصوب</span><input id="of-headcount" type="number" min="0" step="1" value="0" /></label>
+                  <label class="field"><span>محل استقرار</span><input id="of-location" /></label>
+                  <label class="field">
+                    <span>وضعیت واحد</span>
+                    <select id="of-status">
+                      <option value="ACTIVE">فعال</option>
+                      <option value="INACTIVE">غیرفعال</option>
+                    </select>
+                  </label>
+                  <label class="field field-wide"><span>شرح واحد</span><textarea id="of-description" rows="2"></textarea></label>
+                </div>
+                <div class="form-actions">
+                  <button class="primary-btn" type="submit">ذخیره واحد</button>
+                  <button class="ghost-btn" type="button" id="org-cancel-2">انصراف</button>
+                  <span class="form-error" id="org-error" role="alert"></span>
+                </div>
+              </form>
+
+              <div class="card">
+                <div class="card-head">
+                  <div>
+                    <h3>درخت سازمانی</h3>
+                    <p class="muted small">سطح هر واحد از زنجیره واحدهای بالادست محاسبه می‌شود. حذف واحد دارای زیرمجموعه یا شغل متصل مسدود است.</p>
+                  </div>
+                  <span class="badge badge-soft" id="org-count"></span>
+                </div>
+                <div class="table-wrap tall">
+                  <table class="data-table" id="org-tree"></table>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-head">
+                  <div>
+                    <h3>مشاغل به تفکیک واحد سازمانی</h3>
+                    <p class="muted small">شمار مشاغل، نیرو و شکاف نیروی مصوب هر واحد؛ مبنای گزارش‌های واحد در فاز ۹.</p>
+                  </div>
+                </div>
+                <div class="table-wrap tall">
+                  <table class="data-table" id="org-jobs-table"></table>
+                </div>
               </div>
             </div>
           </section>
@@ -422,6 +514,11 @@
                     <label class="field"><span>عنوان شغل *</span><input id="jf-title" required /></label>
                     <label class="field"><span>عنوان انگلیسی</span><input id="jf-title-en" dir="ltr" /></label>
                     <label class="field"><span>واحد سازمانی *</span><input id="jf-unit" required placeholder="مثلاً تولید — خط مونتاژ" /></label>
+                    <label class="field">
+                      <span>اتصال به واحد ساختار سازمانی</span>
+                      <select id="jf-unit-link"><option value="">— بدون اتصال (متن آزاد) —</option></select>
+                      <small class="hint">با انتخاب واحد، نام واحد از درخت سازمانی جای‌گذاری و گزارش واحد دقیق می‌شود.</small>
+                    </label>
                     <label class="field"><span>سرپرست مستقیم (کد شغل)</span><input id="jf-supervisor" dir="ltr" /></label>
                     <label class="field"><span>تعداد نیرو تحت سرپرستی</span><input id="jf-headcount" type="number" min="0" step="1" value="0" /></label>
                     <label class="field">
