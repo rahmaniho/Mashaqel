@@ -1794,6 +1794,104 @@ body.is-auth .toast {
   margin-top: 10px;
 }
 
+/* ------------------------------ آموزش سامانه ------------------------------ */
+
+.guide-intro .card-head {
+  align-items: flex-start;
+}
+
+.guide-tools {
+  margin-top: 14px;
+}
+
+.guide-tools .field {
+  max-width: 420px;
+}
+
+.guide-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 8px;
+}
+
+.guide-chip {
+  border: 1px solid var(--line);
+  background: var(--white);
+  color: var(--navy-800);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.guide-chip:hover,
+.guide-chip:focus-visible {
+  background: var(--gold-100);
+  border-color: var(--gold-400);
+}
+
+.guide-sections {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.guide-section[hidden] {
+  display: none !important;
+}
+
+.guide-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 4px;
+}
+
+.guide-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--navy-800);
+  color: var(--gold-100);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.guide-heading {
+  margin: 12px 0 6px;
+  font-size: 12.5px;
+  color: var(--navy-700);
+}
+
+.guide-steps,
+.guide-list {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: grid;
+  gap: 5px;
+  font-size: 12.5px;
+  line-height: 1.85;
+}
+
+.guide-steps li::marker {
+  color: var(--gold-500);
+  font-weight: 700;
+}
+
+.guide-errors li::marker {
+  color: var(--danger);
+}
+
+.guide-notes {
+  margin-top: 4px;
+}
+
 /* ============================ چاپ و PDF (بازبینی فاز ۱۴) ============================ */
 
 @media print {
@@ -1957,6 +2055,34 @@ body.is-auth .toast {
 
   .profile-header h2 {
     font-size: 17px;
+  }
+
+  .guide-section {
+    break-inside: auto;
+    border: 0 !important;
+    padding: 0 !important;
+    margin-bottom: 12px;
+  }
+
+  .guide-section h3 {
+    break-after: avoid;
+  }
+
+  .guide-section .card-head {
+    display: block;
+  }
+
+  .guide-notes {
+    display: block !important;
+  }
+
+  .guide-notes .grid-2 {
+    display: block;
+  }
+
+  .guide-steps,
+  .guide-list {
+    font-size: 10px;
   }
 
   .topbar {

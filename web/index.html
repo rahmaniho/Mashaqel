@@ -118,6 +118,9 @@
           <button class="nav-item" data-route="reports" type="button">
             <span class="nav-icon" aria-hidden="true">⎙</span><span>گزارش‌ها</span>
           </button>
+          <button class="nav-item" data-route="guide" type="button">
+            <span class="nav-icon" aria-hidden="true">؟</span><span>آموزش سامانه</span>
+          </button>
           <button class="nav-item" data-route="settings" type="button">
             <span class="nav-icon" aria-hidden="true">⚙</span><span>تنظیمات</span>
           </button>
@@ -127,7 +130,7 @@
         </nav>
 
         <div class="sidebar-footer">
-          <p class="sidebar-note">نسخه <strong>۳٫۰</strong> — فاز ۱۰ (امنیت و نقش‌ها)</p>
+          <p class="sidebar-note">نسخه <strong>۴٫۰</strong> — آموزش کامل + چاپ A4</p>
           <p class="sidebar-note small">تمام مبالغ به ریال ایران (IRR)</p>
         </div>
       </aside>
@@ -1305,6 +1308,36 @@
                 <li>همگام‌سازی وضعیت <strong>دستی</strong> است (به‌جز دریافت خودکار در دستگاه خالی) و پشتیبان‌گیری خودکار وجود ندارد؛ فایل JSON یا پشتیبان مرکزی را دوره‌ای بگیرید.</li>
               </ul>
             </div>
+          </section>
+
+          <!-- ------------------------------- آموزش ------------------------------- -->
+          <section id="view-guide" class="view" aria-labelledby="guide-title">
+            <div class="card guide-intro">
+              <div class="card-head">
+                <div>
+                  <h2 id="guide-title">آموزش کامل سامانه</h2>
+                  <p class="muted small">
+                    راهنمای گام‌به‌گام همه ماژول‌ها: از تعریف کارگاه و ارزیابی شغل تا فیش حقوقی، معوقات، گزارش رسمی و چاپ.
+                    این راهنما از داده‌های همین نسخه ساخته می‌شود و قابل چاپ است.
+                  </p>
+                </div>
+                <div class="head-actions no-print">
+                  <button class="ghost-btn" type="button" id="guide-print">چاپ راهنما (A4)</button>
+                </div>
+              </div>
+              <ul class="data-list" id="guide-meta"></ul>
+            </div>
+
+            <div class="card guide-tools no-print">
+              <label class="field">
+                <span>جستجو در راهنما</span>
+                <input id="guide-search" type="search" placeholder="مثلاً: معوقات، کد ملی، چاپ، گروه" autocomplete="off" />
+              </label>
+              <div class="guide-chips" id="guide-toc"></div>
+              <p class="small muted" id="guide-count" role="status"></p>
+            </div>
+
+            <div id="guide-sections" class="guide-sections"></div>
           </section>
         </main>
 
