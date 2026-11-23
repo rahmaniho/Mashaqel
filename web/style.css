@@ -1517,6 +1517,21 @@ textarea:focus {
   margin-bottom: 10px;
 }
 
+.approval-form {
+  margin-top: 12px;
+  background: #fbfcff;
+  border-style: dashed;
+}
+
+.approval-form h4 {
+  color: var(--navy-800);
+  margin-bottom: 8px;
+}
+
+.profile-section .table-wrap {
+  margin-top: 8px;
+}
+
 .profile-footer {
   border-top: 1px dashed var(--line);
   padding-top: 8px;
