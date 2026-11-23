@@ -42,6 +42,7 @@ check('CSS: دروازه ورود در چاپ پنهان است', /body\.is-auth
 check('CSS: گزارش خالی چاپ نمی‌شود', /#rp-sheet\.report-sheet\[hidden\]/.test(printCss));
 check('CSS: گزارش ساخته‌شده در چاپ دیده می‌شود', /#rp-sheet\.report-sheet:not\(\[hidden\]\)/.test(printCss));
 check('CSS: پرونده پرسنلی صفحه‌بندی امن', /\.profile-section\s*\{\s*break-inside:\s*avoid/.test(printCss));
+check('CSS: تصویر آموزش در چاپ شکسته نمی‌شود', /\.guide-figure[\s\S]{0,140}break-inside:\s*avoid/.test(printCss));
 
 const open = (printCss.match(/\{/g) ?? []).length;
 const close = (printCss.match(/\}/g) ?? []).length;

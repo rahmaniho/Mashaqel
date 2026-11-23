@@ -173,6 +173,12 @@ assert('آموزش: ۱۹ بخش', document.querySelectorAll('#guide-sections .gu
 assert('آموزش: فهرست موضوعی', document.querySelectorAll('#guide-toc .guide-chip').length === 19, String(document.querySelectorAll('#guide-toc .guide-chip').length));
 assert('آموزش: هر بخش گام دارد', [...document.querySelectorAll('#guide-sections .guide-steps')].every((list) => list.querySelectorAll('li').length >= 4));
 assert('آموزش: هر بخش خطاهای رایج دارد', [...document.querySelectorAll('#guide-sections .guide-errors')].every((list) => list.querySelectorAll('li').length >= 1));
+assert('آموزش: تصویر شماتیک برای هر بخش', document.querySelectorAll('#guide-sections .guide-figure').length === 19, String(document.querySelectorAll('#guide-sections .guide-figure').length));
+assert('آموزش: عنوان تصویرها', [...document.querySelectorAll('#guide-sections .guide-figure figcaption')].every((caption) => caption.textContent.includes('نمای شماتیک')));
+assert('آموزش: تصاویر دسترس‌پذیر (role و title)', [...document.querySelectorAll('#guide-sections .guide-figure svg')].every((svg) => svg.getAttribute('role') === 'img' && svg.querySelector('title') !== null));
+assert('آموزش: تصاویر درون‌خطی و بدون منبع خارجی', document.querySelectorAll('#guide-sections .guide-figure svg image, #guide-sections .guide-figure svg use[href]').length === 0);
+contains('آموزش: قاب تصویر با نام سامانه', text('#view-guide'), 'مشاغل — داشبورد');
+contains('آموزش: تصویر جدول حقوق', text('#view-guide'), 'فیش حقوقی ماهانه');
 contains('آموزش: اطلاعات نسخه', text('#guide-meta'), 'نسخه سامانه');
 contains('آموزش: نقش کاربر', text('#guide-meta'), 'مدیر سامانه');
 contains('آموزش: راهنمای چاپ', text('#view-guide'), 'چاپ راهنما');
