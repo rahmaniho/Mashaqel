@@ -1517,6 +1517,26 @@ textarea:focus {
   margin-bottom: 10px;
 }
 
+
+/* ---------------------------- ساختار سازمانی ---------------------------- */
+
+.org-indent {
+  display: inline-block;
+}
+
+.org-branch {
+  color: var(--gold-500);
+  font-weight: 700;
+}
+
+.data-table tr.is-inactive td {
+  opacity: 0.62;
+}
+
+.data-table tr.is-inactive td:last-child {
+  opacity: 1;
+}
+
 .approval-form {
   margin-top: 12px;
   background: #fbfcff;
