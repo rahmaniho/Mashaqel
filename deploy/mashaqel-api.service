@@ -1,0 +1,21 @@
+[Unit]
+Description=Mashaqel central API (phase 12)
+After=network.target
+
+[Service]
+Type=simple
+User=mashaqel
+Group=mashaqel
+WorkingDirectory=/srv/mashaqel
+EnvironmentFile=/etc/mashaqel/api.env
+ExecStart=/usr/bin/node /srv/mashaqel/server/server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mashaqel
+
+[Install]
+WantedBy=multi-user.target

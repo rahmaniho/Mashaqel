@@ -5543,6 +5543,8 @@ let activityFilter = '';
 const BACKEND_KEY = 'mashaqel.backend.v1';
 const BACKEND_TOKEN_KEY = 'mashaqel.backend.token';
 const backendState = { mode: 'local', base: './api', token: null, health: null, users: [], verified: null, lastError: '', status: null };
+const SYNC_KEY = 'mashaqel.sync.v1';
+const syncState = { version: 0, at: null };
 
 function backendBase() {
   try {
@@ -5659,6 +5661,122 @@ async function refreshServerUsers() {
 
 function currentUsers() {
   return backendState.mode === 'server' ? backendState.users : authUsers();
+}
+
+/* ---------------------- همگام‌سازی چنددستگاهی (فاز ۱۲) ---------------------- */
+
+function readSyncState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SYNC_KEY) ?? 'null');
+    syncState.version = Number(saved?.version ?? 0);
+    syncState.at = saved?.at ?? null;
+  } catch {
+    syncState.version = 0;
+    syncState.at = null;
+  }
+  return syncState;
+}
+
+function writeSyncState(version) {
+  syncState.version = Number(version ?? 0);
+  syncState.at = new Date().toISOString();
+  try {
+    localStorage.setItem(SYNC_KEY, JSON.stringify({ version: syncState.version, at: syncState.at }));
+  } catch {
+    /* ذخیره‌سازی محلی در دسترس نیست */
+  }
+  renderBackendPanel();
+}
+
+function stateSnapshot() {
+  return {
+    workshops: state.store.workshops ?? [],
+    activeWorkshopId: state.store.activeWorkshopId ?? null,
+    units: state.store.units ?? [],
+    jobs: state.store.jobs ?? [],
+    employees: state.store.employees ?? [],
+  };
+}
+
+function applyServerState(payload, scoped) {
+  if (!scoped) {
+    writeStore({
+      workshops: Array.isArray(payload.workshops) ? payload.workshops : [],
+      activeWorkshopId: payload.activeWorkshopId ?? null,
+      units: Array.isArray(payload.units) ? payload.units : [],
+      jobs: Array.isArray(payload.jobs) ? payload.jobs : [],
+      employees: Array.isArray(payload.employees) ? payload.employees : [],
+    });
+    return;
+  }
+  const scope = new Set((payload.workshops ?? []).map((workshop) => workshop.id));
+  const keepOutside = (rows) => (rows ?? []).filter((row) => !scope.has(row.workshopId));
+  writeStore({
+    workshops: [...(state.store.workshops ?? []).filter((workshop) => !scope.has(workshop.id)), ...(payload.workshops ?? [])],
+    activeWorkshopId: payload.activeWorkshopId ?? state.store.activeWorkshopId ?? null,
+    units: [...keepOutside(state.store.units), ...(payload.units ?? [])],
+    jobs: [...keepOutside(state.store.jobs), ...(payload.jobs ?? [])],
+    employees: [...keepOutside(state.store.employees), ...(payload.employees ?? [])],
+  });
+}
+
+async function syncPull({ silent = false } = {}) {
+  if (backendState.mode !== 'server' || !backendState.token) {
+    if (!silent) setBackendNote('برای همگام‌سازی، ابتدا به سرور مرکزی متصل و وارد شوید.', 'warn');
+    return false;
+  }
+  try {
+    const result = await apiFetch('/state');
+    if (!result.state) {
+      if (!silent) setBackendNote('وضعیت سازمانی هنوز روی سرور ثبت نشده است؛ ابتدا از یک دستگاه «ارسال» کنید.', 'warn');
+      return false;
+    }
+    applyServerState(result.state.payload ?? {}, Boolean(result.state.scoped));
+    if (backendState.health) backendState.health.stateVersion = result.state.version;
+    writeSyncState(result.state.version);
+    if (!silent) {
+      setBackendNote(
+        `وضعیت نسخه ${fmt(result.state.version)} از سرور دریافت شد (${fmt(result.state.payload?.workshops?.length ?? 0)} کارگاه).`,
+        'ok',
+      );
+      logActivity('settings', 'RESTORE', `دریافت وضعیت سازمان از سرور — نسخه ${result.state.version}`);
+    }
+    return true;
+  } catch (error) {
+    if (!silent) setBackendNote(`دریافت وضعیت ناموفق بود: ${error.message}`, 'error');
+    return false;
+  }
+}
+
+async function syncPush({ silent = false } = {}) {
+  if (backendState.mode !== 'server' || !backendState.token) {
+    if (!silent) setBackendNote('برای همگام‌سازی، ابتدا به سرور مرکزی متصل و وارد شوید.', 'warn');
+    return false;
+  }
+  if (currentRole() === 'VIEWER') {
+    if (!silent) setBackendNote('نقش بازدیدکننده اجازه ارسال وضعیت را ندارد.', 'warn');
+    return false;
+  }
+  try {
+    const result = await apiFetch('/state', {
+      method: 'PUT',
+      body: { baseVersion: syncState.version, payload: stateSnapshot() },
+    });
+    if (backendState.health) backendState.health.stateVersion = result.version;
+    writeSyncState(result.version);
+    if (!silent) {
+      setBackendNote(`وضعیت سازمان به‌صورت نسخه ${fmt(result.version)} روی سرور ذخیره شد.`, 'ok');
+      logActivity('settings', 'BACKUP', `ارسال وضعیت سازمان به سرور — نسخه ${result.version}`);
+    }
+    return true;
+  } catch (error) {
+    if (error.status === 409) {
+      setBackendNote('نسخه سرور جلوتر است؛ ابتدا «دریافت وضعیت از سرور» را بزنید و سپس ارسال کنید.', 'warn');
+      return false;
+    }
+    if (!silent) setBackendNote(`ارسال وضعیت ناموفق بود: ${error.message}`, 'error');
+    return false;
+  }
 }
 
 function webcrypto() {
@@ -5895,6 +6013,7 @@ async function createFirstAdmin() {
       await refreshServerUsers();
       renderUsersTable();
       renderBackendPanel();
+      if ((state.store.workshops ?? []).length === 0) void syncPull({ silent: true });
       if (message) message.textContent = '';
     } catch (error) {
       if (message) message.textContent = error.message;
@@ -6405,9 +6524,24 @@ function renderBackendPanel() {
     chip.classList.toggle('neutral', !server);
     chip.title = server ? 'احراز هویت و گزارش فعالیت روی سرور' : 'نسخه استاتیک؛ احراز هویت در مرورگر';
   }
+  const canPush = server && Boolean(backendState.token) && currentRole() !== 'VIEWER';
   for (const id of ['backend-verify', 'backend-backup', 'backend-restore', 'backend-sync-audit']) {
     const button = document.getElementById(id);
     if (button) button.disabled = !server || !backendState.token;
+  }
+  for (const id of ['sync-pull', 'sync-refresh']) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = !server || !backendState.token;
+  }
+  const push = document.getElementById('sync-push');
+  if (push) push.disabled = !canPush;
+  const syncStatus = document.getElementById('sync-status');
+  if (syncStatus) {
+    const localVersion = fmt(syncState.version);
+    const serverVersion = fmt(health?.stateVersion ?? 0);
+    syncStatus.textContent = server
+      ? `نسخه محلی ${localVersion} — نسخه سرور ${serverVersion}${syncState.at ? ` — آخرین همگام‌سازی ${localizeDigits(new Date(syncState.at).toLocaleString('fa-IR'))}` : ''}`
+      : `نسخه محلی ${localVersion} — بدون سرور`;
   }
 }
 
@@ -6515,6 +6649,34 @@ function initBackendPanel() {
       } catch (error) {
         setBackendNote(`بازیابی ناموفق بود: ${error.message}`, 'error');
       }
+    });
+  }
+
+  const pull = document.getElementById('sync-pull');
+  if (pull) pull.addEventListener('click', () => void syncPull());
+
+  const push = document.getElementById('sync-push');
+  if (push) push.addEventListener('click', () => void syncPush());
+
+  const syncRefresh = document.getElementById('sync-refresh');
+  if (syncRefresh) {
+    syncRefresh.addEventListener('click', async () => {
+      await detectBackend();
+      if (backendState.mode === 'server') {
+        await refreshServerStatus();
+        try {
+          backendState.health = await apiFetch('/health', { auth: false });
+        } catch {
+          /* بی‌اهمیت */
+        }
+      }
+      renderBackendPanel();
+      setBackendNote(
+        backendState.mode === 'server'
+          ? `نسخه سرور: ${fmt(backendState.health?.stateVersion ?? 0)} — نسخه محلی: ${fmt(syncState.version)}`
+          : 'سروری در دسترس نیست؛ حالت محلی.',
+        backendState.mode === 'server' ? 'ok' : 'warn',
+      );
     });
   }
 

@@ -213,6 +213,118 @@ describe('سرور مرکزی — محافظت‌های مدیریت کاربر�
   });
 });
 
+
+describe('سرور مرکزی — همگام‌سازی چنددستگاهی (فاز ۱۲)', () => {
+  let adminToken;
+  let expertToken;
+  let viewerToken;
+
+  before(async () => {
+    adminToken = (await call('/api/auth/login', { method: 'POST', body: { username: 'admin.test', password: admin.password } })).body.token;
+    const users = await call('/api/users', { token: adminToken });
+    if (!users.body.users.some((user) => user.username === 'sync.expert')) {
+      await call('/api/users', {
+        method: 'POST',
+        token: adminToken,
+        body: { fullName: 'همگام‌ساز', username: 'sync.expert', role: 'EXPERT', password: 'Sync@1405', workshopIds: ['workshop-1'] },
+      });
+    }
+    if (!users.body.users.some((user) => user.username === 'sync.viewer')) {
+      await call('/api/users', {
+        method: 'POST',
+        token: adminToken,
+        body: { fullName: 'ناظر', username: 'sync.viewer', role: 'VIEWER', password: 'Viewer@1405' },
+      });
+    }
+    expertToken = (await call('/api/auth/login', { method: 'POST', body: { username: 'sync.expert', password: 'Sync@1405' } })).body.token;
+    viewerToken = (await call('/api/auth/login', { method: 'POST', body: { username: 'sync.viewer', password: 'Viewer@1405' } })).body.token;
+  });
+
+  const orgState = {
+    workshops: [
+      { id: 'workshop-1', workshopName: 'کارگاه یک' },
+      { id: 'workshop-2', workshopName: 'کارگاه دو' },
+    ],
+    activeWorkshopId: 'workshop-1',
+    units: [{ id: 'unit-1', workshopId: 'workshop-1', title: 'واحد یک' }],
+    jobs: [{ id: 'job-1', workshopId: 'workshop-1', jobCode: 'J-1' }],
+    employees: [{ id: 'emp-1', workshopId: 'workshop-1', personnelCode: 'E-1' }],
+  };
+
+  it('در ابتدا وضعیت سازمانی روی سرور نیست', async () => {
+    const res = await call('/api/state', { token: adminToken });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.state, null);
+  });
+
+  it('مدیر وضعیت سازمان را با نسخه ۱ ارسال می‌کند', async () => {
+    const res = await call('/api/state', { method: 'PUT', token: adminToken, body: { baseVersion: 0, payload: orgState } });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.version, 1);
+    const get = await call('/api/state', { token: adminToken });
+    assert.equal(get.body.state.version, 1);
+    assert.equal(get.body.state.scoped, false);
+    assert.equal(get.body.state.payload.workshops.length, 2);
+  });
+
+  it('ارسال با نسخه قدیمی رد می‌شود (تعارض همگام‌سازی)', async () => {
+    const res = await call('/api/state', { method: 'PUT', token: adminToken, body: { baseVersion: 0, payload: orgState } });
+    assert.equal(res.status, 409);
+    assert.equal(res.body.error, 'STALE_VERSION');
+  });
+
+  it('ساختار نامعتبر رد می‌شود', async () => {
+    const res = await call('/api/state', { method: 'PUT', token: adminToken, body: { baseVersion: 1, payload: { jobs: [] } } });
+    assert.equal(res.status, 400);
+  });
+
+  it('کاربر محدود فقط کارگاه‌های مجاز را دریافت می‌کند', async () => {
+    const res = await call('/api/state', { token: expertToken });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.state.scoped, true);
+    assert.deepEqual(res.body.state.payload.workshops.map((workshop) => workshop.id), ['workshop-1']);
+    assert.equal(res.body.state.payload.units.length, 1);
+    assert.equal(res.body.state.payload.jobs.length, 1);
+  });
+
+  it('ارسال کاربر محدود فقط کارگاه خودش را به‌روز می‌کند', async () => {
+    const scopedPayload = {
+      workshops: [
+        { id: 'workshop-1', workshopName: 'کارگاه یک — ویرایش‌شده' },
+        { id: 'workshop-2', workshopName: 'تلاش برای تغییر غیرمجاز' },
+      ],
+      activeWorkshopId: 'workshop-1',
+      units: [],
+      jobs: [{ id: 'job-1', workshopId: 'workshop-1', jobCode: 'J-1-EDIT' }],
+      employees: [],
+    };
+    const res = await call('/api/state', { method: 'PUT', token: expertToken, body: { baseVersion: 1, payload: scopedPayload } });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.version, 2);
+    assert.equal(res.body.scoped, true);
+    const adminView = await call('/api/state', { token: adminToken });
+    const doc = adminView.body.state.payload;
+    assert.equal(doc.workshops.find((workshop) => workshop.id === 'workshop-1').workshopName, 'کارگاه یک — ویرایش‌شده');
+    assert.equal(doc.workshops.find((workshop) => workshop.id === 'workshop-2').workshopName, 'کارگاه دو');
+    assert.equal(doc.jobs.length, 1);
+    assert.equal(doc.jobs[0].jobCode, 'J-1-EDIT');
+    assert.equal(doc.units.length, 0);
+  });
+
+  it('بازدیدکننده دریافت می‌کند اما ارسال نمی‌تواند', async () => {
+    const get = await call('/api/state', { token: viewerToken });
+    assert.equal(get.status, 200);
+    const put = await call('/api/state', { method: 'PUT', token: viewerToken, body: { baseVersion: 2, payload: orgState } });
+    assert.equal(put.status, 403);
+    assert.equal(put.body.error, 'FORBIDDEN');
+  });
+
+  it('نسخه وضعیت در سلامت سرویس دیده می‌شود', async () => {
+    const res = await call('/api/health');
+    assert.equal(res.body.stateVersion, 2);
+  });
+});
+
 describe('سرور مرکزی — زنجیره گزارش فعالیت', () => {
   let adminToken;
 

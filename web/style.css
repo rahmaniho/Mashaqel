@@ -1790,6 +1790,11 @@ body.is-auth .toast {
   align-items: end;
 }
 
+.sync-row {
+  border-top: 1px dashed var(--line, #e2e6ef);
+  padding-top: 10px;
+}
+
 .backend-actions {
   display: flex;
   flex-wrap: wrap;

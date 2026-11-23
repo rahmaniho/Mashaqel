@@ -133,6 +133,25 @@ assert('سرور: بازبینی زنجیره گزارش', await waitFor(() => t
 click('#backend-backup');
 assert('سرور: پشتیبان مرکزی ثبت شد', await waitFor(() => text('#backend-note').includes('پشتیبان مرکزی نسخه')), text('#backend-note'));
 
+/* همگام‌سازی چنددستگاهی (فاز ۱۲) */
+
+click('#sync-push');
+assert('سرور: ارسال وضعیت سازمان', await waitFor(() => text('#backend-note').includes('روی سرور ذخیره شد')), text('#backend-note'));
+const stateAfterPush = await (async () => {
+  const response = await nativeFetch(`${apiBase}/api/state`, {
+    headers: { authorization: `Bearer ${sessionStore.get('mashaqel.backend.token')}` },
+  });
+  return response.json();
+})();
+assert('سرور: نسخه وضعیت روی سرور', stateAfterPush.state?.version === 1, JSON.stringify(stateAfterPush));
+
+click('#sync-refresh');
+assert('سرور: بررسی نسخه‌ها', await waitFor(() => text('#backend-note').includes('نسخه سرور: ۱')), text('#backend-note'));
+contains('سرور: نشان نسخه همگام‌سازی', text('#sync-status'), 'نسخه سرور ۱');
+
+click('#sync-pull');
+assert('سرور: دریافت وضعیت از سرور', await waitFor(() => text('#backend-note').includes('دریافت شد')), text('#backend-note'));
+
 click('.nav-item[data-route="users"]');
 await waitFor(() => countRows('#users-table') === 1, 4000);
 assert('سرور: فهرست کاربران از سرور', countRows('#users-table') === 1, String(countRows('#users-table')));
