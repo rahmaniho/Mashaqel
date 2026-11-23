@@ -1761,6 +1761,18 @@ body.is-auth .toast {
   margin: 0;
 }
 
+.sso-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px dashed var(--line, #e2e6ef);
+  padding-top: 10px;
+}
+
+.sso-row[hidden] {
+  display: none;
+}
+
 .auth-note {
   font-size: 0.72rem;
   line-height: 1.7;

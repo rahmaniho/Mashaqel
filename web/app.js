@@ -5542,7 +5542,7 @@ let activityFilter = '';
 
 const BACKEND_KEY = 'mashaqel.backend.v1';
 const BACKEND_TOKEN_KEY = 'mashaqel.backend.token';
-const backendState = { mode: 'local', base: './api', token: null, health: null, users: [], verified: null, lastError: '', status: null };
+const backendState = { mode: 'local', base: './api', token: null, health: null, users: [], verified: null, lastError: '', status: null, sso: null };
 const SYNC_KEY = 'mashaqel.sync.v1';
 const syncState = { version: 0, at: null };
 
@@ -5645,6 +5645,99 @@ async function refreshServerStatus() {
     return backendState.status;
   } catch {
     return null;
+  }
+}
+
+async function loadSsoStatus() {
+  if (backendState.mode !== 'server') {
+    backendState.sso = null;
+    renderSsoUi();
+    return null;
+  }
+  try {
+    backendState.sso = await apiFetch('/auth/sso/status', { auth: false });
+  } catch {
+    backendState.sso = null;
+  }
+  renderSsoUi();
+  return backendState.sso;
+}
+
+function renderSsoUi() {
+  const row = document.getElementById('sso-row');
+  const button = document.getElementById('sso-login');
+  const note = document.getElementById('sso-note');
+  if (!row || !button) return;
+  const sso = backendState.sso;
+  const enabled = backendState.mode === 'server' && Boolean(sso?.enabled);
+  row.hidden = !enabled;
+  const localFields = document.querySelectorAll('#auth-login input, #auth-login button[type="submit"]');
+  const localDisabled = enabled && sso?.localLogin === false;
+  localFields.forEach((element) => {
+    element.hidden = localDisabled;
+  });
+  if (!enabled) {
+    if (note) note.textContent = '';
+    return;
+  }
+  button.textContent = sso.provider ? `ورود با ${sso.provider}` : 'ورود با حساب سازمانی';
+  if (note) {
+    note.textContent = localDisabled
+      ? 'ورود با رمز محلی در این نصب غیرفعال است؛ فقط از حساب سازمانی استفاده کنید.'
+      : 'با حساب سازمانی (SSO) وارد شوید؛ نقش و دسترسی به‌صورت خودکار از سرویس هویت گرفته می‌شود.';
+  }
+}
+
+function startSsoLogin() {
+  if (backendState.mode !== 'server') {
+    showToast('ورود سازمانی فقط در حالت سرور در دسترس است.');
+    return;
+  }
+  const redirect = encodeURIComponent(window.location?.pathname || '/');
+  try {
+    window.location.href = `${backendBase()}/auth/sso/start?redirect=${redirect}`;
+  } catch {
+    showToast('انتقال به سرویس هویت ممکن نشد.');
+  }
+}
+
+async function handleSsoCallback() {
+  if (backendState.mode !== 'server') return false;
+  let params;
+  try {
+    params = new URLSearchParams(window.location?.search ?? '');
+  } catch {
+    return false;
+  }
+  const code = params.get('sso');
+  if (!code) return false;
+  try {
+    const payload = await apiFetch('/auth/sso/exchange', { method: 'POST', auth: false, body: { code } });
+    writeBackendToken(payload.token);
+    authState.user = mapServerUser(payload.user);
+    hideAuthGate();
+    startApp();
+    await refreshServerUsers();
+    renderUsersTable();
+    renderBackendPanel();
+    const next = params.get('next');
+    const route = String(next ?? '').replace(/^\//, '');
+    if (route && ROUTES[route]) navigate(route);
+    try {
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete('sso');
+      clean.searchParams.delete('next');
+      window.history.replaceState({}, '', `${clean.pathname}${clean.search}${clean.hash}`);
+    } catch {
+      /* پاک‌سازی نشانی ممکن نیست */
+    }
+    showToast(`خوش آمدید، ${payload.user.fullName}`);
+    return true;
+  } catch (error) {
+    showAuthGate('login');
+    const message = document.getElementById('auth-login-msg');
+    if (message) message.textContent = error.message;
+    return false;
   }
 }
 
@@ -5949,6 +6042,7 @@ function showAuthGate(mode) {
   if (setup) setup.hidden = !wantsSetup;
   if (login) login.hidden = wantsSetup;
   if (backendState.mode === 'server') {
+    void loadSsoStatus();
     void refreshServerStatus().then((status) => {
       if (!status || gate.hidden) return;
       const setupRequired = Boolean(status.setupRequired);
@@ -5983,6 +6077,8 @@ function bindAuthForms() {
   }
   const logout = document.getElementById('logout-btn');
   if (logout) logout.addEventListener('click', () => logoutCurrentUser());
+  const ssoLogin = document.getElementById('sso-login');
+  if (ssoLogin) ssoLogin.addEventListener('click', () => startSsoLogin());
 }
 
 async function createFirstAdmin() {
@@ -6746,8 +6842,11 @@ async function boot() {
     }
   }
 
+  await loadSsoStatus();
+  const ssoHandled = await handleSsoCallback();
+
   bindAuthForms();
-  if (!currentUser()) {
+  if (!ssoHandled && !currentUser()) {
     showAuthGate();
     renderBackendPanel();
     return;
