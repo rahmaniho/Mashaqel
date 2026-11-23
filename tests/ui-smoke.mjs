@@ -67,6 +67,14 @@ const setSelect = (selector, value) => {
   select.dispatchEvent(new window.Event('change'));
 };
 
+const selectValueOf = (selector) => {
+  const select = document.querySelector(selector);
+  if (!select) return '';
+  if (select.value) return select.value;
+  const selected = select.querySelector?.('option[selected]');
+  return selected?.getAttribute?.('value') ?? '';
+};
+
 const checks = [];
 const assert = (label, condition, detail = '') => checks.push({ label, ok: Boolean(condition), detail });
 const contains = (label, haystack, needle) => assert(label, haystack.includes(needle), needle);
@@ -75,7 +83,7 @@ const contains = (label, haystack, needle) => assert(label, haystack.includes(ne
 
 const navItems = [...document.querySelectorAll('.nav-item')];
 assert('منوی کناری: ۱۲ بخش', navItems.length === 12, String(navItems.length));
-assert('منوی کناری: ۸ بخش فعال', navItems.filter((item) => !item.disabled).length === 8, String(navItems.filter((item) => !item.disabled).length));
+assert('منوی کناری: ۹ بخش فعال', navItems.filter((item) => !item.disabled).length === 9, String(navItems.filter((item) => !item.disabled).length));
 assert(
   'بخش «شناسنامه فرمول‌ها و اسناد قانونی» پنهان شده است',
   document.querySelector('#view-reference') === null && !document.body.innerHTML.includes('شناسنامه فرمول') && !document.body.innerHTML.includes('بانک قوانین'),
@@ -473,6 +481,152 @@ assert('حذف برگ مسدود است تا شغل جدا شود', Boolean(leaf
 
 assert('پایداری واحدها در ذخیره‌سازی', (JSON.parse(localStorage.getItem('mashaqel.state.v2')).units ?? []).length === 3);
 assert('چاپ درخت موجود است', document.querySelector('#org-print') !== null);
+
+
+/* --------------------------- فاز ۷: مدیریت کارکنان --------------------------- */
+
+const empNav = document.querySelector('.nav-item[data-route="employees"]');
+assert('مدیریت کارکنان: آیتم منو فعال شد', empNav?.disabled === false && empNav?.querySelector('.nav-badge') === null);
+
+click('.nav-item[data-route="employees"]');
+assert('مسیریابی به کارکنان', document.querySelector('#view-employees')?.classList.contains('is-active'));
+assert('کارکنان: حالت خالی', text('#emp-table').includes('هنوز کارمندی ثبت نشده'));
+
+const employeesStore = () => JSON.parse(localStorage.getItem('mashaqel.state.v2')).employees ?? [];
+const employeeByCode = (code) => employeesStore().find((employee) => employee.personnelCode === code);
+const submitEmployee = (values) => {
+  for (const [id, value] of Object.entries(values)) setField(id, value);
+  document.querySelector('#employee-form').dispatchEvent(new window.Event('submit'));
+};
+
+click('#emp-new');
+setSelect('#ef-unit', assemblyUnit.id);
+setSelect('#ef-job', linkedJob.id);
+assert('کارکنان: پیشنهاد خودکار گروه از شغل', selectValueOf('#ef-group') === '12', String(selectValueOf('#ef-group')));
+submitEmployee({
+  'ef-code': 'EMP-1001',
+  'ef-first': 'مریم',
+  'ef-last': 'احمدی',
+  'ef-national': '0012345678',
+  'ef-birth': '1370-05-12',
+  'ef-contract': 'PERMANENT',
+  'ef-hire': '1398-04-01',
+  'ef-service': 7,
+  'ef-status': 'ACTIVE',
+  'ef-wage': 6000000,
+  'ef-acc': 200000,
+});
+
+assert('کارکنان: یک پرونده ثبت شد', employeesStore().length === 1, String(employeesStore().length));
+const firstEmployee = employeeByCode('EMP-1001');
+assert('کارکنان: واحد سازمانی ذخیره شد', firstEmployee?.unitId === assemblyUnit.id, String(firstEmployee?.unitId));
+assert('کارکنان: شغل ذخیره شد', firstEmployee?.jobId === linkedJob.id, String(firstEmployee?.jobId));
+assert('کارکنان: گروه ۱۲ ذخیره شد', firstEmployee?.group === 12, String(firstEmployee?.group));
+assert('کارکنان: سابقه ۷ سال', firstEmployee?.priorServiceYears === 7, String(firstEmployee?.priorServiceYears));
+
+click('#emp-new');
+submitEmployee({ 'ef-code': 'EMP-1001', 'ef-first': 'تکراری', 'ef-last': 'کارمند', 'ef-hire': '1400-01-01' });
+assert('کارکنان: کد پرسنلی تکراری رد شد', text('#emp-error').includes('قبلاً'), text('#emp-error'));
+assert('کارکنان: پرونده تکراری ثبت نشد', employeesStore().length === 1, String(employeesStore().length));
+
+setField('ef-code', 'EMP-9999');
+setField('ef-national', '12345');
+document.querySelector('#employee-form').dispatchEvent(new window.Event('submit'));
+assert('کارکنان: کد ملی نامعتبر رد شد', text('#emp-error').includes('کد ملی'), text('#emp-error'));
+setField('ef-national', '0012345679');
+setField('ef-hire', '1400/13/40');
+document.querySelector('#employee-form').dispatchEvent(new window.Event('submit'));
+assert('کارکنان: تاریخ استخدام نامعتبر رد شد', text('#emp-error').includes('تاریخ استخدام'), text('#emp-error'));
+setField('ef-hire', '1400-01-01');
+setField('ef-first', 'رضا');
+setField('ef-last', 'کریمی');
+document.querySelector('#employee-form').dispatchEvent(new window.Event('submit'));
+assert('کارکنان: پرونده دوم ثبت شد', employeesStore().length === 2, String(employeesStore().length));
+
+const firstRow = [...document.querySelectorAll('#emp-table tbody tr')].find((row) => row.textContent.includes('EMP-1001'));
+assert('جدول کارکنان: نام', firstRow?.textContent?.includes('مریم احمدی'), firstRow?.textContent?.slice(0, 40));
+assert('جدول کارکنان: واحد', firstRow?.textContent?.includes('خط مونتاژ'), firstRow?.textContent?.slice(0, 60));
+assert('جدول کارکنان: وضعیت', firstRow?.textContent?.includes('فعال'), firstRow?.textContent?.slice(0, 60));
+assert('شاخص کارکنان', text('#emp-kpis').includes('کل کارکنان'), text('#emp-kpis'));
+
+setSelect('#emp-filter-unit', assemblyUnit.id);
+assert('فیلتر واحد: یک نفر', document.querySelectorAll('#emp-table tbody tr').length === 1, String(document.querySelectorAll('#emp-table tbody tr').length));
+setSelect('#emp-filter-unit', 'NONE');
+assert('فیلتر بدون واحد: یک نفر', document.querySelectorAll('#emp-table tbody tr').length === 1, String(document.querySelectorAll('#emp-table tbody tr').length));
+setSelect('#emp-filter-unit', '');
+setSelect('#emp-filter-status', 'TERMINATED');
+assert('فیلتر وضعیت: بدون نتیجه', text('#emp-table').includes('یافت نشد'), text('#emp-table').slice(0, 60));
+setSelect('#emp-filter-status', '');
+setInput('emp-search', 'کریمی');
+assert('جستجوی کارمند', document.querySelectorAll('#emp-table tbody tr').length === 1, String(document.querySelectorAll('#emp-table tbody tr').length));
+setInput('emp-search', '');
+
+/* پرونده و تاریخچه ارتقا */
+const profileButton = [...document.querySelectorAll('#emp-table tbody tr')]
+  .find((row) => row.textContent.includes('EMP-1001'))
+  ?.querySelector('button[data-action="profile"]');
+profileButton?.dispatchEvent(new window.Event('click', { bubbles: true }));
+assert('پرونده کارمند باز شد', document.querySelector('#emp-profile')?.hidden === false);
+contains('پرونده: نام', text('#emp-profile-body'), 'مریم احمدی');
+contains('پرونده: بدون تاریخچه', text('#emp-profile-body'), 'هنوز تغییری ثبت نشده');
+
+setField('promo-date', '1405-04-01');
+setSelect('#promo-group', '14');
+click('#promo-save');
+assert('ارتقا: الزام دلیل', text('#promo-msg').includes('دلیل'), text('#promo-msg'));
+setField('promo-reason', 'ارتقا مطابق صورت‌جلسه ۱۴۰۵/۱۲');
+click('#promo-save');
+const promotedEmployee = employeeByCode('EMP-1001');
+assert('ارتقا: گروه ۱۴ شد', promotedEmployee?.group === 14, String(promotedEmployee?.group));
+assert('ارتقا: تاریخچه ثبت شد', (promotedEmployee?.jobChanges ?? []).length === 1, String(promotedEmployee?.jobChanges?.length));
+contains('ارتقا: نمایش در تاریخچه', text('#emp-profile-body'), 'ارتقا مطابق صورت‌جلسه');
+assert('ارتقا: گروه قبلی در تاریخچه', text('#emp-profile-body').includes(fa(12)), '۱۲');
+
+setField('promo-reason', 'بدون تغییر');
+click('#promo-save');
+assert('ارتقا: تغییر یکسان رد شد', text('#promo-msg').includes('یکسان'), text('#promo-msg'));
+
+/* ورود گروهی CSV */
+click('#emp-import-toggle');
+const csv = [
+  'personnelCode,firstName,lastName,unitCode,jobCode,group,contractType,hireDate,priorServiceYears,status',
+  'EMP-2001,سعید,نوری,1110,J-2001,10,TEMPORARY,1402-02-01,3,ACTIVE',
+  'EMP-1001,تکراری,ردیف,1110,J-2001,10,TEMPORARY,1402-02-01,3,ACTIVE',
+  'EMP-2002,زهرا,موسوی,,,12,دائم,1401-06-15,4,فعال',
+].join('\n');
+setTextArea('emp-import-text', csv);
+click('#emp-import-run');
+assert('ورود گروهی: یک نفر افزوده شد', employeesStore().length === 4, String(employeesStore().length));
+contains('ورود گروهی: پیام', text('#emp-import-msg'), 'افزوده شد');
+contains('ورود گروهی: ردیف تکراری', text('#emp-import-msg'), 'تکراری');
+const importedEmployee = employeeByCode('EMP-2001');
+assert('ورود گروهی: کد واحد به واحد تبدیل شد', importedEmployee?.unitId === assemblyUnit.id, String(importedEmployee?.unitId));
+assert('ورود گروهی: نوع قرارداد', importedEmployee?.contractType === 'TEMPORARY', String(importedEmployee?.contractType));
+const importedPersian = employeeByCode('EMP-2002');
+assert('ورود گروهی: مقادیر فارسی', importedPersian?.contractType === 'PERMANENT' && importedPersian?.status === 'ACTIVE', `${importedPersian?.contractType}/${importedPersian?.status}`);
+click('#emp-import-cancel');
+
+/* خروجی CSV و بارگذاری در ماشین‌حساب */
+let exportOk = true;
+try {
+  click('#emp-export');
+} catch {
+  exportOk = false;
+}
+assert('خروجی CSV بدون خطا', exportOk);
+
+const calcButton = [...document.querySelectorAll('#emp-table tbody tr')]
+  .find((row) => row.textContent.includes('EMP-1001'))
+  ?.querySelector('button[data-action="calc"]');
+calcButton?.dispatchEvent(new window.Event('click', { bubbles: true }));
+assert('بارگذاری مزد: رفتن به حقوق', document.querySelector('#view-payroll')?.classList.contains('is-active'));
+assert('بارگذاری مزد: گروه کارمند', selectValueOf('#w-group') === '14', String(selectValueOf('#w-group')));
+assert('بارگذاری مزد: سابقه کارمند', String(document.querySelector('#w-service')?.value) === '7', String(document.querySelector('#w-service')?.value));
+
+click('.nav-item[data-route="employees"]');
+const deleteTarget = [...document.querySelectorAll('#emp-table tbody tr')].find((row) => row.textContent.includes('EMP-2002'));
+deleteTarget?.querySelector('button[data-action="delete"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+assert('حذف کارمند', employeesStore().length === 3, String(employeesStore().length));
 
 /* -------------------------- حقوق و دستمزد و ارقام -------------------------- */
 

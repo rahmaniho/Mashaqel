@@ -52,8 +52,8 @@
           </button>
 
           <p class="nav-group-title">کارکنان و مزد</p>
-          <button class="nav-item" data-route="employees" type="button" disabled title="فاز ۷ — مدیریت کارکنان">
-            <span class="nav-icon" aria-hidden="true">☰</span><span>مدیریت کارکنان</span><span class="nav-badge">فاز ۷</span>
+          <button class="nav-item" data-route="employees" type="button">
+            <span class="nav-icon" aria-hidden="true">☰</span><span>مدیریت کارکنان</span>
           </button>
           <button class="nav-item" data-route="payroll" type="button">
             <span class="nav-icon" aria-hidden="true">﷼</span><span>محاسبات حقوق و دستمزد</span>
@@ -75,7 +75,7 @@
         </nav>
 
         <div class="sidebar-footer">
-          <p class="sidebar-note">نسخه <strong>۲٫۴</strong> — فاز ۶ (ساختار سازمانی)</p>
+          <p class="sidebar-note">نسخه <strong>۲٫۵</strong> — فاز ۷ (مدیریت کارکنان)</p>
           <p class="sidebar-note small">تمام مبالغ به ریال ایران (IRR)</p>
         </div>
       </aside>
@@ -280,6 +280,220 @@
                 </div>
                 <div class="table-wrap tall">
                   <table class="data-table" id="org-jobs-table"></table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+
+          <!-- --------------------------- مدیریت کارکنان --------------------------- -->
+          <section id="view-employees" class="view">
+            <div class="panel-head no-print">
+              <div>
+                <h2>مدیریت کارکنان</h2>
+                <p class="muted">
+                  پرونده پرسنلی هر کارمند: کد پرسنلی، قرارداد، سابقه، واحد سازمانی، شغل و گروه شغلی، داده مزد
+                  و تاریخچه ارتقا. داده مزد هر کارمند مبنای محاسبه فیش و معوقات در فازهای بعدی است.
+                </p>
+              </div>
+              <div class="head-actions">
+                <button class="ghost-btn" type="button" id="emp-import-toggle">ورود گروهی</button>
+                <button class="ghost-btn" type="button" id="emp-export">خروجی CSV</button>
+                <button class="ghost-btn" type="button" id="emp-print">چاپ فهرست</button>
+                <button class="primary-btn" type="button" id="emp-new">＋ کارمند جدید</button>
+              </div>
+            </div>
+
+            <div class="card" id="emp-empty-workshop" hidden>
+              <div class="empty-state">
+                برای ثبت کارمند، ابتدا یک کارگاه انتخاب کنید. کارکنان هر کارگاه مستقل‌اند.
+                <div style="margin-top: 10px"><button class="primary-btn" type="button" data-route="workshops">رفتن به مدیریت کارگاه‌ها</button></div>
+              </div>
+            </div>
+
+            <div id="emp-workspace">
+              <div class="mini-results" id="emp-kpis"></div>
+
+              <div class="card no-print" id="emp-import-card" hidden>
+                <div class="card-head">
+                  <div>
+                    <h3>ورود گروهی کارکنان (CSV)</h3>
+                    <p class="muted small">
+                      هر سطر یک کارمند. ستون‌ها: <code dir="ltr">personnelCode,firstName,lastName,unitCode,jobCode,group,contractType,hireDate,priorServiceYears,status</code>
+                      — سرستون اختیاری است؛ جداکننده: کاما، سمی‌کولن یا Tab.
+                    </p>
+                  </div>
+                  <button class="ghost-btn" type="button" id="emp-import-cancel">بستن</button>
+                </div>
+                <label class="field field-wide">
+                  <span>محتوای CSV</span>
+                  <textarea id="emp-import-text" rows="6" dir="ltr" placeholder="personnelCode,firstName,lastName,unitCode,jobCode,group,contractType,hireDate,priorServiceYears,status"></textarea>
+                </label>
+                <div class="form-actions">
+                  <button class="primary-btn" type="button" id="emp-import-run">پردازش و افزودن</button>
+                  <span class="form-error" id="emp-import-msg" role="alert"></span>
+                </div>
+              </div>
+
+              <form id="employee-form" class="card no-print" hidden autocomplete="off">
+                <div class="card-head">
+                  <h3 id="employee-form-title">کارمند جدید</h3>
+                  <button class="ghost-btn" type="button" id="emp-cancel">انصراف</button>
+                </div>
+                <input type="hidden" id="ef-id" />
+
+                <fieldset class="form-section">
+                  <legend>۱. هویت و شناسه پرسنلی</legend>
+                  <div class="form-grid">
+                    <label class="field"><span>کد پرسنلی *</span><input id="ef-code" required dir="ltr" placeholder="مثلاً EMP-1001" /></label>
+                    <label class="field"><span>نام *</span><input id="ef-first" required /></label>
+                    <label class="field"><span>نام خانوادگی *</span><input id="ef-last" required /></label>
+                    <label class="field"><span>نام پدر</span><input id="ef-father" /></label>
+                    <label class="field"><span>کد ملی</span><input id="ef-national" dir="ltr" inputmode="numeric" placeholder="۱۰ رقم" /></label>
+                    <label class="field"><span>شماره شناسنامه</span><input id="ef-idnumber" dir="ltr" /></label>
+                    <label class="field"><span>تاریخ تولد (شمسی)</span><input id="ef-birth" dir="ltr" placeholder="1370-01-01" /></label>
+                    <label class="field">
+                      <span>جنسیت</span>
+                      <select id="ef-gender">
+                        <option value="M">مرد</option>
+                        <option value="F">زن</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>وضعیت تأهل</span>
+                      <select id="ef-marital">
+                        <option value="MARRIED">متأهل</option>
+                        <option value="SINGLE">مجرد</option>
+                      </select>
+                    </label>
+                    <label class="field"><span>تعداد فرزند واجد شرایط</span><input id="ef-children" type="number" min="0" step="1" value="0" /></label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="form-section">
+                  <legend>۲. استخدام، قرارداد و سابقه</legend>
+                  <div class="form-grid">
+                    <label class="field">
+                      <span>نوع قرارداد</span>
+                      <select id="ef-contract">
+                        <option value="PERMANENT">دائم</option>
+                        <option value="TEMPORARY" selected>موقت</option>
+                        <option value="SERVICE">پیمانی / خدماتی</option>
+                        <option value="HOURLY">ساعتی</option>
+                        <option value="APPRENTICE">کارآموزی</option>
+                      </select>
+                    </label>
+                    <label class="field"><span>تاریخ استخدام (شمسی) *</span><input id="ef-hire" required dir="ltr" placeholder="1400-01-01" /></label>
+                    <label class="field"><span>پایان قرارداد (شمسی)</span><input id="ef-contract-end" dir="ltr" placeholder="1405-12-29" /></label>
+                    <label class="field">
+                      <span>سابقه کار مؤثر (سال)</span>
+                      <input id="ef-service" type="number" min="0" step="0.25" value="0" />
+                      <small class="hint">برای احتساب پایه سنوات؛ در صورت خالی‌بودن از تاریخ استخدام محاسبه می‌شود.</small>
+                    </label>
+                    <label class="field">
+                      <span>وضعیت کارمند</span>
+                      <select id="ef-status">
+                        <option value="ACTIVE">فعال</option>
+                        <option value="INACTIVE">غیرفعال</option>
+                        <option value="SUSPENDED">تعلیق</option>
+                        <option value="TERMINATED">پایان کار</option>
+                      </select>
+                    </label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="form-section">
+                  <legend>۳. جایگاه سازمانی</legend>
+                  <div class="form-grid">
+                    <label class="field"><span>واحد سازمانی</span><select id="ef-unit"><option value="">— بدون واحد —</option></select></label>
+                    <label class="field"><span>شغل (از بانک مشاغل)</span><select id="ef-job"><option value="">— بدون شغل —</option></select></label>
+                    <label class="field">
+                      <span>گروه شغلی فعلی</span>
+                      <select id="ef-group"></select>
+                      <small class="hint" id="ef-group-hint">گروه پیشنهادی/نهایی شغل انتخاب‌شده به‌صورت خودکار پیشنهاد می‌شود.</small>
+                    </label>
+                    <label class="field"><span>سرپرست مستقیم</span><input id="ef-supervisor" /></label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="form-section">
+                  <legend>۴. داده مزد و بیمه</legend>
+                  <div class="form-grid">
+                    <label class="field"><span>مزد شغل روزانه (ریال)</span><input id="ef-wage" type="number" min="0" step="1" inputmode="numeric" /></label>
+                    <label class="field"><span>سنوات تجمیعی روزانه تا پایان ۱۴۰۴ (ریال)</span><input id="ef-acc" type="number" min="0" step="1" inputmode="numeric" /></label>
+                    <label class="field"><span>سایر اجزای مزد روزانه (ریال)</span><input id="ef-other" type="number" min="0" step="1" inputmode="numeric" value="0" /></label>
+                    <label class="field field-inline">
+                      <span>بیمه‌شده</span>
+                      <label class="check-inline"><input type="checkbox" id="ef-insured" checked /> مشمول بیمه تأمین اجتماعی</label>
+                    </label>
+                    <label class="field"><span>شماره بیمه</span><input id="ef-insurance-no" dir="ltr" /></label>
+                    <label class="field field-wide"><span>یادداشت</span><textarea id="ef-notes" rows="2"></textarea></label>
+                  </div>
+                </fieldset>
+
+                <div class="form-actions">
+                  <button class="primary-btn" type="submit">ذخیره کارمند</button>
+                  <button class="ghost-btn" type="button" id="emp-cancel-2">انصراف</button>
+                  <span class="form-error" id="emp-error" role="alert"></span>
+                </div>
+              </form>
+
+              <div class="card" id="emp-profile" hidden>
+                <div class="card-head">
+                  <h3 id="emp-profile-title">پرونده کارمند</h3>
+                  <button class="ghost-btn" type="button" id="emp-profile-close">بستن</button>
+                </div>
+                <div id="emp-profile-body"></div>
+                <div class="card approval-form no-print" id="promo-card">
+                  <h4>ثبت ارتقا / تغییر شغل و گروه</h4>
+                  <div class="field-grid compact">
+                    <label class="field"><span>تاریخ تغییر (شمسی)</span><input id="promo-date" dir="ltr" placeholder="1405-04-01" /></label>
+                    <label class="field"><span>شغل جدید</span><select id="promo-job"><option value="">— بدون تغییر —</option></select></label>
+                    <label class="field"><span>گروه جدید</span><select id="promo-group"></select></label>
+                    <label class="field"><span>دلیل / مستند</span><input id="promo-reason" placeholder="مثلاً ارتقا مطابق صورت‌جلسه ۱۴۰۵/۱۲" /></label>
+                  </div>
+                  <div class="form-actions">
+                    <button class="primary-btn" type="button" id="promo-save">ثبت تغییر</button>
+                    <span class="form-error" id="promo-msg" role="alert"></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="toolbar">
+                  <label class="search-field">
+                    <span class="small muted">جستجو</span>
+                    <input id="emp-search" type="search" placeholder="کد پرسنلی، نام، واحد یا شغل" />
+                  </label>
+                  <label class="field field-inline">
+                    <span>واحد سازمانی</span>
+                    <select id="emp-filter-unit"><option value="">همه واحدها</option></select>
+                  </label>
+                  <label class="field field-inline">
+                    <span>وضعیت</span>
+                    <select id="emp-filter-status">
+                      <option value="">همه وضعیت‌ها</option>
+                      <option value="ACTIVE">فعال</option>
+                      <option value="INACTIVE">غیرفعال</option>
+                      <option value="SUSPENDED">تعلیق</option>
+                      <option value="TERMINATED">پایان کار</option>
+                    </select>
+                  </label>
+                  <label class="field field-inline">
+                    <span>نوع قرارداد</span>
+                    <select id="emp-filter-contract">
+                      <option value="">همه قراردادها</option>
+                      <option value="PERMANENT">دائم</option>
+                      <option value="TEMPORARY">موقت</option>
+                      <option value="SERVICE">پیمانی / خدماتی</option>
+                      <option value="HOURLY">ساعتی</option>
+                      <option value="APPRENTICE">کارآموزی</option>
+                    </select>
+                  </label>
+                  <span class="badge badge-soft" id="emp-count"></span>
+                </div>
+                <div class="table-wrap tall">
+                  <table class="data-table" id="emp-table"></table>
                 </div>
               </div>
             </div>

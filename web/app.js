@@ -13,7 +13,7 @@ const state = {
   groupResult: null,
   evalResult: null,
   evalControls: [],
-  store: { workshops: [], activeWorkshopId: null, units: [], jobs: [] },
+  store: { workshops: [], activeWorkshopId: null, units: [], jobs: [], employees: [] },
 };
 
 const NUMBER_FORMAT = {
@@ -138,9 +138,10 @@ function readStore() {
       activeWorkshopId: parsed?.activeWorkshopId ?? null,
       units: Array.isArray(parsed?.units) ? parsed.units : [],
       jobs: Array.isArray(parsed?.jobs) ? parsed.jobs : [],
+      employees: Array.isArray(parsed?.employees) ? parsed.employees : [],
     };
   } catch {
-    return { workshops: [], activeWorkshopId: null, units: [], jobs: [] };
+    return { workshops: [], activeWorkshopId: null, units: [], jobs: [], employees: [] };
   }
 }
 
@@ -150,6 +151,7 @@ function writeStore(patch) {
     activeWorkshopId: state.store.activeWorkshopId,
     units: state.store.units ?? [],
     jobs: state.store.jobs ?? [],
+    employees: state.store.employees ?? [],
     ...patch,
   };
   state.store = next;
@@ -166,6 +168,7 @@ function writeStore(patch) {
     renderEvalJobOptions();
     renderGroupJobsComparison();
     renderOrgView();
+    renderEmployeesView();
     renderSettingsMeta();
   }
 }
@@ -206,6 +209,11 @@ const ROUTES = {
     title: 'ساختار سازمانی',
     subtitle: 'درخت واحدها، کد یکتا، واحد بالادست و اتصال مشاغل به واحدها',
     view: 'view-org',
+  },
+  employees: {
+    title: 'مدیریت کارکنان',
+    subtitle: 'پرونده پرسنلی، قرارداد، جایگاه سازمانی، داده مزد و تاریخچه ارتقا',
+    view: 'view-employees',
   },
   jobs: {
     title: 'بانک مشاغل',
@@ -267,6 +275,7 @@ function navigate(route, options = {}) {
   }
   if (target === 'dashboard') renderDashboard();
   if (target === 'org') renderOrgView();
+  if (target === 'employees') renderEmployeesView();
   if (target === 'jobs') renderJobsView();
   if (target === 'evaluation') renderEvalJobOptions();
   if (target === 'group') renderGroupJobsComparison();
@@ -799,6 +808,7 @@ function renderSettingsMeta() {
     ['زمان تولید داده', new Date(meta.generatedAt).toLocaleString('fa-IR')],
     ['کارگاه‌های ثبت‌شده', fmt(state.store.workshops.length)],
     ['واحدهای سازمانی', fmt(state.store.units.length)],
+    ['کارکنان ثبت‌شده', fmt(state.store.employees.length)],
     ['مشاغل ثبت‌شده', fmt(state.store.jobs.length)],
     ['مشاغل ارزیابی‌شده', fmt(state.store.jobs.filter((job) => job.evaluation).length)],
     ['کلید ذخیره‌سازی محلی', STORAGE_KEY],
@@ -3086,6 +3096,873 @@ function renderOrgJobsTable() {
     </tbody>`;
 }
 
+
+/* ============================ مدیریت کارکنان ============================ */
+
+const CONTRACT_TYPE_LABELS = {
+  PERMANENT: 'دائم',
+  TEMPORARY: 'موقت',
+  SERVICE: 'پیمانی / خدماتی',
+  HOURLY: 'ساعتی',
+  APPRENTICE: 'کارآموزی',
+};
+const EMPLOYEE_STATUS_LABELS = {
+  ACTIVE: 'فعال',
+  INACTIVE: 'غیرفعال',
+  SUSPENDED: 'تعلیق',
+  TERMINATED: 'پایان کار',
+};
+const EMPLOYEE_STATUS_CHIP = { ACTIVE: 'st-1', INACTIVE: 'neutral', SUSPENDED: 'st-3', TERMINATED: 'st-3' };
+const GENDER_LABELS = { M: 'مرد', F: 'زن' };
+const MARITAL_LABELS = { MARRIED: 'متأهل', SINGLE: 'مجرد' };
+const EMPLOYEE_CODE_PATTERN = /^[0-9A-Za-z\u0600-\u06FF][0-9A-Za-z\u0600-\u06FF_-]{1,23}$/;
+const JALALI_DATE_PATTERN = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
+
+const employeeFilter = { search: '', unit: '', status: '', contract: '' };
+let employeeProfileId = null;
+
+function toLatinDigitsLocal(value) {
+  return String(value ?? '')
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+}
+
+function isValidJalaliDate(value) {
+  const match = JALALI_DATE_PATTERN.exec(String(value ?? '').trim());
+  if (!match) return false;
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  return month >= 1 && month <= 12 && day >= 1 && day <= 31;
+}
+
+function serviceYearsFromHireDate(hireDate) {
+  if (!isValidJalaliDate(hireDate)) return 0;
+  const [hy, hm] = hireDate.split('-').map(Number);
+  const today = todayJalali().replace(/\//g, '-');
+  if (!isValidJalaliDate(today)) return 0;
+  const [ty, tm] = today.split('-').map(Number);
+  const months = (ty - hy) * 12 + (tm - hm);
+  return Math.max(0, Math.round((months / 12) * 4) / 4);
+}
+
+function workshopEmployees() {
+  const workshop = activeWorkshop();
+  if (!workshop) return [];
+  return state.store.employees.filter((employee) => employee.workshopId === workshop.id);
+}
+
+function employeeById(id) {
+  return state.store.employees.find((employee) => employee.id === id) ?? null;
+}
+
+function employeeJob(employee) {
+  return employee?.jobId ? jobById(employee.jobId) : null;
+}
+
+function employeeServiceYears(employee) {
+  if (employee?.priorServiceYears !== undefined && employee?.priorServiceYears !== null && employee?.priorServiceYears !== '') {
+    return Number(employee.priorServiceYears);
+  }
+  return serviceYearsFromHireDate(employee?.hireDate ?? '');
+}
+
+function initEmployees() {
+  const newButton = document.getElementById('emp-new');
+  if (newButton) newButton.addEventListener('click', () => openEmployeeForm(null));
+
+  const form = document.getElementById('employee-form');
+  if (form) {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      saveEmployeeFromForm();
+    });
+  }
+  for (const id of ['emp-cancel', 'emp-cancel-2']) {
+    const button = document.getElementById(id);
+    if (button) button.addEventListener('click', () => closeEmployeeForm());
+  }
+
+  const search = document.getElementById('emp-search');
+  if (search) {
+    search.addEventListener('input', () => {
+      employeeFilter.search = search.value.trim();
+      renderEmployeesTable();
+    });
+  }
+  for (const [id, key] of [
+    ['emp-filter-unit', 'unit'],
+    ['emp-filter-status', 'status'],
+    ['emp-filter-contract', 'contract'],
+  ]) {
+    const select = document.getElementById(id);
+    if (select) {
+      select.addEventListener('change', () => {
+        employeeFilter[key] = selectValue(select, '');
+        renderEmployeesTable();
+      });
+    }
+  }
+
+  const table = document.getElementById('emp-table');
+  if (table) {
+    table.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const employee = employeeById(button.dataset.id);
+      if (!employee) return;
+      if (button.dataset.action === 'profile') openEmployeeProfile(employee.id);
+      if (button.dataset.action === 'edit') openEmployeeForm(employee);
+      if (button.dataset.action === 'calc') prefillWageFromEmployee(employee);
+      if (button.dataset.action === 'delete') deleteEmployee(employee);
+    });
+  }
+
+  const profileClose = document.getElementById('emp-profile-close');
+  if (profileClose) {
+    profileClose.addEventListener('click', () => {
+      employeeProfileId = null;
+      const card = document.getElementById('emp-profile');
+      if (card) card.hidden = true;
+    });
+  }
+
+  const jobSelect = document.getElementById('ef-job');
+  if (jobSelect) {
+    jobSelect.addEventListener('change', () => {
+      const job = jobById(selectValue(jobSelect, ''));
+      const groupSelect = document.getElementById('ef-group');
+      const hint = document.getElementById('ef-group-hint');
+      const suggested = normalizeApproval(job?.evaluation)?.finalGroup ?? job?.evaluation?.proposedGroup ?? null;
+      if (job && groupSelect && !selectValue(groupSelect, '')) {
+        setElementValue(groupSelect, suggested ? String(suggested) : '');
+      }
+      if (hint) {
+        hint.textContent = job
+          ? suggested
+            ? `گروه پیشنهادی/نهایی شغل «${job.title}»: ${fmt(suggested)}`
+            : `برای شغل «${job.title}» هنوز ارزیابی ثبت نشده است؛ گروه را دستی تعیین کنید.`
+          : 'گروه پیشنهادی/نهایی شغل انتخاب‌شده به‌صورت خودکار پیشنهاد می‌شود.';
+      }
+    });
+  }
+
+  const importToggle = document.getElementById('emp-import-toggle');
+  if (importToggle) {
+    importToggle.addEventListener('click', () => {
+      const card = document.getElementById('emp-import-card');
+      if (card) card.hidden = !card.hidden;
+    });
+  }
+  const importCancel = document.getElementById('emp-import-cancel');
+  if (importCancel) {
+    importCancel.addEventListener('click', () => {
+      const card = document.getElementById('emp-import-card');
+      if (card) card.hidden = true;
+    });
+  }
+  const importRun = document.getElementById('emp-import-run');
+  if (importRun) {
+    importRun.addEventListener('click', () => {
+      const textarea = document.getElementById('emp-import-text');
+      const message = document.getElementById('emp-import-msg');
+      const outcome = importEmployeesCsv(textarea?.value ?? '');
+      if (message) {
+        message.textContent = [outcome.summary, ...outcome.errors.slice(0, 5)].join(' ');
+        message.dataset.state = outcome.added > 0 ? 'ok' : 'error';
+      }
+      if (outcome.added > 0) {
+        if (textarea) textarea.value = '';
+        renderEmployeesView();
+      }
+    });
+  }
+  const exportButton = document.getElementById('emp-export');
+  if (exportButton) exportButton.addEventListener('click', () => exportEmployeesCsv());
+
+  const printButton = document.getElementById('emp-print');
+  if (printButton) {
+    printButton.addEventListener('click', () => {
+      if (typeof window.print === 'function') window.print();
+    });
+  }
+
+  const promoButton = document.getElementById('promo-save');
+  if (promoButton) {
+    promoButton.addEventListener('click', () => promoteEmployee(employeeProfileId));
+  }
+
+  renderEmployeesView();
+}
+
+function renderEmployeesView() {
+  const workspace = document.getElementById('emp-workspace');
+  const empty = document.getElementById('emp-empty-workshop');
+  if (!workspace || !empty) return;
+  const hasWorkshop = Boolean(activeWorkshop());
+  empty.hidden = hasWorkshop;
+  workspace.hidden = !hasWorkshop;
+  if (!hasWorkshop) return;
+  renderEmployeeFilters();
+  renderEmployeeKpis();
+  renderEmployeesTable();
+  if (employeeProfileId) {
+    const employee = employeeById(employeeProfileId);
+    if (employee) renderEmployeeProfile(employee);
+    else {
+      employeeProfileId = null;
+      const card = document.getElementById('emp-profile');
+      if (card) card.hidden = true;
+    }
+  }
+}
+
+function renderEmployeeFilters() {
+  const select = document.getElementById('emp-filter-unit');
+  if (!select) return;
+  const units = unitsTreeOrder(workshopUnits());
+  select.innerHTML =
+    '<option value="">همه واحدها</option><option value="NONE">بدون واحد</option>' +
+    units
+      .map(({ unit, depth }) => `<option value="${escapeHtml(unit.id)}">${'—'.repeat(depth)} ${escapeHtml(unit.title)}</option>`)
+      .join('');
+  setElementValue(select, employeeFilter.unit);
+}
+
+function filteredEmployees() {
+  const search = employeeFilter.search.toLowerCase();
+  return workshopEmployees().filter((employee) => {
+    if (employeeFilter.unit === 'NONE' && employee.unitId) return false;
+    if (employeeFilter.unit && employeeFilter.unit !== 'NONE' && employee.unitId !== employeeFilter.unit) return false;
+    if (employeeFilter.status && employee.status !== employeeFilter.status) return false;
+    if (employeeFilter.contract && employee.contractType !== employeeFilter.contract) return false;
+    if (!search) return true;
+    const job = employeeJob(employee);
+    const haystack = `${employee.personnelCode} ${employee.firstName} ${employee.lastName} ${employee.nationalId ?? ''} ${job?.jobCode ?? ''} ${job?.title ?? ''}`.toLowerCase();
+    return haystack.includes(search);
+  });
+}
+
+function renderEmployeeKpis() {
+  const target = document.getElementById('emp-kpis');
+  if (!target) return;
+  const employees = workshopEmployees();
+  const active = employees.filter((employee) => employee.status === 'ACTIVE').length;
+  const serviceSum = employees.reduce((sum, employee) => sum + employeeServiceYears(employee), 0);
+  const average = employees.length > 0 ? serviceSum / employees.length : 0;
+  const missingPlacement = employees.filter((employee) => !employee.jobId || !employee.group).length;
+  const cards = [
+    ['کل کارکنان', fmt(employees.length)],
+    ['کارکنان فعال', fmt(active)],
+    ['میانگین سابقه', employees.length > 0 ? `${fmt(average, 1)} سال` : '—'],
+    ['بدون شغل یا گروه', fmt(missingPlacement)],
+  ];
+  target.innerHTML = `<div class="summary-grid">${cards
+    .map(([label, value]) => `<div class="summary-card"><span class="label">${label}</span><span class="value">${value}</span></div>`)
+    .join('')}</div>`;
+}
+
+function renderEmployeesTable() {
+  const table = document.getElementById('emp-table');
+  if (!table) return;
+  const counter = document.getElementById('emp-count');
+  const rows = filteredEmployees();
+  if (counter) counter.textContent = `${fmt(rows.length)} نفر از ${fmt(workshopEmployees().length)}`;
+  if (rows.length === 0) {
+    table.innerHTML = `
+      <tbody>
+        <tr>
+          <td>
+            <div class="empty-state">
+              ${workshopEmployees().length === 0
+                ? 'هنوز کارمندی ثبت نشده است. با دکمه «کارمند جدید» اولین پرونده پرسنلی را بسازید یا از «ورود گروهی» استفاده کنید.'
+                : 'کارمندی با این فیلترها یافت نشد.'}
+            </div>
+          </td>
+        </tr>
+      </tbody>`;
+    return;
+  }
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>کد پرسنلی</th><th>نام و نام خانوادگی</th><th>واحد سازمانی</th><th>شغل</th>
+        <th>گروه</th><th>قرارداد</th><th>استخدام</th><th>سابقه (سال)</th><th>وضعیت</th><th>عملیات</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows
+        .map((employee) => {
+          const job = employeeJob(employee);
+          const unit = employee.unitId ? unitById(employee.unitId) : null;
+          return `<tr>
+            <td class="num" dir="ltr">${escapeHtml(employee.personnelCode)}</td>
+            <td>
+              <strong>${escapeHtml(`${employee.firstName} ${employee.lastName}`.trim())}</strong>
+              ${employee.nationalId ? `<div class="small muted" dir="ltr">${escapeHtml(employee.nationalId)}</div>` : ''}
+            </td>
+            <td>${unit ? `${escapeHtml(unit.title)}<div class="small muted">کد ${escapeHtml(unit.code)}</div>` : '—'}</td>
+            <td>${job ? `${escapeHtml(job.title)}<div class="small muted">${escapeHtml(job.jobCode)}</div>` : '—'}</td>
+            <td class="num">${employee.group ? fmt(employee.group) : '—'}</td>
+            <td>${escapeHtml(CONTRACT_TYPE_LABELS[employee.contractType] ?? employee.contractType ?? '—')}</td>
+            <td class="num">${escapeHtml(localizeDigits(employee.hireDate || '—'))}</td>
+            <td class="num">${fmt(employeeServiceYears(employee), 1)}</td>
+            <td><span class="chip ${EMPLOYEE_STATUS_CHIP[employee.status] ?? 'neutral'}">${escapeHtml(EMPLOYEE_STATUS_LABELS[employee.status] ?? employee.status ?? '—')}</span></td>
+            <td class="actions-cell">
+              <button type="button" class="icon-btn" data-action="profile" data-id="${escapeHtml(employee.id)}" title="پرونده کارمند">▤</button>
+              <button type="button" class="icon-btn" data-action="edit" data-id="${escapeHtml(employee.id)}" title="ویرایش">✎</button>
+              <button type="button" class="icon-btn" data-action="calc" data-id="${escapeHtml(employee.id)}" title="بارگذاری در ماشین‌حساب مزد">﷼</button>
+              <button type="button" class="icon-btn" data-action="delete" data-id="${escapeHtml(employee.id)}" title="حذف">✕</button>
+            </td>
+          </tr>`;
+        })
+        .join('')}
+    </tbody>`;
+}
+
+function renderEmployeeFormOptions(employee) {
+  const unitSelect = document.getElementById('ef-unit');
+  if (unitSelect) {
+    unitSelect.innerHTML =
+      '<option value="">— بدون واحد —</option>' +
+      unitsTreeOrder(workshopUnits())
+        .map(({ unit, depth }) => `<option value="${escapeHtml(unit.id)}">${'—'.repeat(depth)} ${escapeHtml(unit.code)} — ${escapeHtml(unit.title)}</option>`)
+        .join('');
+  }
+  const jobSelect = document.getElementById('ef-job');
+  if (jobSelect) {
+    jobSelect.innerHTML =
+      '<option value="">— بدون شغل —</option>' +
+      workshopJobs()
+        .map((job) => `<option value="${escapeHtml(job.id)}">${escapeHtml(job.jobCode)} — ${escapeHtml(job.title)}</option>`)
+        .join('');
+  }
+  const groupSelect = document.getElementById('ef-group');
+  if (groupSelect) {
+    groupSelect.innerHTML =
+      '<option value="">تعیین نشده</option>' +
+      Array.from({ length: 20 }, (_, index) => {
+        const group = index + 1;
+        return `<option value="${group}">گروه ${fmt(group)}</option>`;
+      }).join('');
+  }
+  setElementValue(unitSelect, employee?.unitId ?? '');
+  setElementValue(jobSelect, employee?.jobId ?? '');
+  setElementValue(groupSelect, employee?.group ? String(employee.group) : '');
+}
+
+function openEmployeeForm(employee) {
+  const form = document.getElementById('employee-form');
+  if (!form) return;
+  renderEmployeeFormOptions(employee);
+  form.hidden = false;
+  const title = document.getElementById('employee-form-title');
+  if (title) title.textContent = employee ? `ویرایش کارمند ${employee.personnelCode}` : 'کارمند جدید';
+  setElementValue(document.getElementById('ef-id'), employee?.id ?? '');
+  setElementValue(document.getElementById('ef-code'), employee?.personnelCode ?? '');
+  setElementValue(document.getElementById('ef-first'), employee?.firstName ?? '');
+  setElementValue(document.getElementById('ef-last'), employee?.lastName ?? '');
+  setElementValue(document.getElementById('ef-father'), employee?.fatherName ?? '');
+  setElementValue(document.getElementById('ef-national'), employee?.nationalId ?? '');
+  setElementValue(document.getElementById('ef-idnumber'), employee?.idNumber ?? '');
+  setElementValue(document.getElementById('ef-birth'), employee?.birthDate ?? '');
+  setElementValue(document.getElementById('ef-gender'), employee?.gender ?? 'M');
+  setElementValue(document.getElementById('ef-marital'), employee?.maritalStatus ?? 'MARRIED');
+  setElementValue(document.getElementById('ef-children'), employee?.childrenCount ?? 0);
+  setElementValue(document.getElementById('ef-contract'), employee?.contractType ?? 'TEMPORARY');
+  setElementValue(document.getElementById('ef-hire'), employee?.hireDate ?? todayJalali().replace(/\//g, '-'));
+  setElementValue(document.getElementById('ef-contract-end'), employee?.contractEndDate ?? '');
+  setElementValue(document.getElementById('ef-service'), employee?.priorServiceYears ?? 0);
+  setElementValue(document.getElementById('ef-status'), employee?.status ?? 'ACTIVE');
+  setElementValue(document.getElementById('ef-supervisor'), employee?.supervisorName ?? '');
+  setElementValue(document.getElementById('ef-wage'), employee?.dailyJobWage ?? '');
+  setElementValue(document.getElementById('ef-acc'), employee?.priorAccumulatedSeniority ?? '');
+  setElementValue(document.getElementById('ef-other'), employee?.otherDailyComponents ?? 0);
+  const insured = document.getElementById('ef-insured');
+  if (insured) insured.checked = employee?.insured !== false;
+  setElementValue(document.getElementById('ef-insurance-no'), employee?.insuranceNumber ?? '');
+  setElementValue(document.getElementById('ef-notes'), employee?.notes ?? '');
+  const error = document.getElementById('emp-error');
+  if (error) error.textContent = '';
+  form.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+
+function closeEmployeeForm() {
+  const form = document.getElementById('employee-form');
+  if (form) form.hidden = true;
+  const error = document.getElementById('emp-error');
+  if (error) error.textContent = '';
+}
+
+function saveEmployeeFromForm() {
+  const workshop = activeWorkshop();
+  const errorTarget = document.getElementById('emp-error');
+  if (!workshop) {
+    if (errorTarget) errorTarget.textContent = 'ابتدا یک کارگاه انتخاب کنید.';
+    return;
+  }
+  const id = document.getElementById('ef-id').value;
+  const existing = id ? employeeById(id) : null;
+  const hireDate = toLatinDigitsLocal(document.getElementById('ef-hire').value.trim()).replace(/\//g, '-');
+  const birthDate = toLatinDigitsLocal(document.getElementById('ef-birth').value.trim()).replace(/\//g, '-');
+  const contractEndDate = toLatinDigitsLocal(document.getElementById('ef-contract-end').value.trim()).replace(/\//g, '-');
+  const jobId = selectValue(document.getElementById('ef-job'), '') || null;
+  const groupValue = selectValue(document.getElementById('ef-group'), '');
+  const draft = {
+    id: existing?.id ?? newId('emp'),
+    workshopId: existing?.workshopId ?? workshop.id,
+    personnelCode: document.getElementById('ef-code').value.trim(),
+    firstName: document.getElementById('ef-first').value.trim(),
+    lastName: document.getElementById('ef-last').value.trim(),
+    fatherName: document.getElementById('ef-father').value.trim(),
+    nationalId: toLatinDigitsLocal(document.getElementById('ef-national').value.trim()),
+    idNumber: document.getElementById('ef-idnumber').value.trim(),
+    birthDate,
+    gender: selectValue(document.getElementById('ef-gender'), 'M'),
+    maritalStatus: selectValue(document.getElementById('ef-marital'), 'MARRIED'),
+    childrenCount: Math.max(0, Number(document.getElementById('ef-children').value || 0)),
+    contractType: selectValue(document.getElementById('ef-contract'), 'TEMPORARY'),
+    hireDate,
+    contractEndDate,
+    priorServiceYears: Math.max(0, Number(document.getElementById('ef-service').value || 0)),
+    status: selectValue(document.getElementById('ef-status'), 'ACTIVE'),
+    unitId: selectValue(document.getElementById('ef-unit'), '') || null,
+    jobId,
+    group: groupValue ? Number(groupValue) : null,
+    supervisorName: document.getElementById('ef-supervisor').value.trim(),
+    dailyJobWage: Math.max(0, Number(document.getElementById('ef-wage').value || 0)),
+    priorAccumulatedSeniority: Math.max(0, Number(document.getElementById('ef-acc').value || 0)),
+    otherDailyComponents: Math.max(0, Number(document.getElementById('ef-other').value || 0)),
+    insured: Boolean(document.getElementById('ef-insured').checked),
+    insuranceNumber: document.getElementById('ef-insurance-no').value.trim(),
+    notes: document.getElementById('ef-notes').value.trim(),
+    jobChanges: existing?.jobChanges ?? [],
+    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const problems = [];
+  if (!EMPLOYEE_CODE_PATTERN.test(draft.personnelCode)) {
+    problems.push('کد پرسنلی باید ۲ تا ۲۴ نویسه باشد و فقط حروف، رقم، خط تیره و زیرخط بپذیرد.');
+  }
+  const duplicate = workshopEmployees().find(
+    (employee) =>
+      employee.id !== existing?.id &&
+      employee.personnelCode.toLowerCase() === draft.personnelCode.toLowerCase(),
+  );
+  if (draft.personnelCode && duplicate) {
+    problems.push(`کد پرسنلی «${draft.personnelCode}» قبلاً برای «${duplicate.firstName} ${duplicate.lastName}» ثبت شده است.`);
+  }
+  if (!draft.firstName) problems.push('نام الزامی است.');
+  if (!draft.lastName) problems.push('نام خانوادگی الزامی است.');
+  if (draft.nationalId && !/^\d{10}$/.test(draft.nationalId)) problems.push('کد ملی باید ۱۰ رقم باشد.');
+  if (!isValidJalaliDate(draft.hireDate)) problems.push('تاریخ استخدام باید به شکل 1400-01-01 و معتبر باشد.');
+  if (draft.birthDate && !isValidJalaliDate(draft.birthDate)) problems.push('تاریخ تولد معتبر نیست (نمونه: 1370-01-01).');
+  if (draft.contractEndDate && !isValidJalaliDate(draft.contractEndDate)) {
+    problems.push('تاریخ پایان قرارداد معتبر نیست (نمونه: 1405-12-29).');
+  }
+  if (draft.contractEndDate && isValidJalaliDate(draft.hireDate) && draft.contractEndDate < draft.hireDate) {
+    problems.push('تاریخ پایان قرارداد نمی‌تواند پیش از تاریخ استخدام باشد.');
+  }
+  if (draft.unitId && !unitById(draft.unitId)) problems.push('واحد سازمانی انتخاب‌شده معتبر نیست.');
+  if (draft.jobId && !jobById(draft.jobId)) problems.push('شغل انتخاب‌شده معتبر نیست.');
+  if (draft.group !== null && (draft.group < 1 || draft.group > 20)) problems.push('گروه شغلی باید بین ۱ و ۲۰ باشد.');
+  if (problems.length > 0) {
+    if (errorTarget) errorTarget.textContent = problems.join(' ');
+    return;
+  }
+
+  const employees = existing
+    ? state.store.employees.map((row) => (row.id === draft.id ? draft : row))
+    : [...state.store.employees, draft];
+  writeStore({ ...state.store, employees });
+  closeEmployeeForm();
+  renderEmployeesView();
+  showToast(existing ? 'پرونده کارمند به‌روزرسانی شد' : 'کارمند جدید ثبت شد');
+}
+
+function deleteEmployee(employee) {
+  const confirmed = typeof window.confirm === 'function'
+    ? window.confirm(`حذف پرونده «${employee.firstName} ${employee.lastName}»؟ تاریخچه نیز حذف می‌شود.`)
+    : true;
+  if (!confirmed) return;
+  writeStore({ ...state.store, employees: state.store.employees.filter((row) => row.id !== employee.id) });
+  if (employeeProfileId === employee.id) {
+    employeeProfileId = null;
+    const card = document.getElementById('emp-profile');
+    if (card) card.hidden = true;
+  }
+  renderEmployeesView();
+  showToast('پرونده کارمند حذف شد');
+}
+
+function renderEmployeeProfile(employee) {
+  const card = document.getElementById('emp-profile');
+  const body = document.getElementById('emp-profile-body');
+  const title = document.getElementById('emp-profile-title');
+  if (!card || !body) return;
+  card.hidden = false;
+  if (title) title.textContent = `پرونده کارمند — ${employee.firstName} ${employee.lastName} (${employee.personnelCode})`;
+  const job = employeeJob(employee);
+  const unit = employee.unitId ? unitById(employee.unitId) : null;
+  const history = [...(employee.jobChanges ?? [])].reverse();
+
+  body.innerHTML = `
+    <h3 class="profile-name">${escapeHtml(`${employee.firstName} ${employee.lastName}`.trim())} <span class="small muted" dir="ltr">${escapeHtml(employee.personnelCode)}</span></h3>
+    <div class="summary-grid profile-summary">
+      <div class="summary-card is-accent"><span class="label">گروه شغلی فعلی</span><span class="value">${employee.group ? fmt(employee.group) : '—'}</span></div>
+      <div class="summary-card"><span class="label">سابقه مؤثر</span><span class="value">${fmt(employeeServiceYears(employee), 1)} سال</span></div>
+      <div class="summary-card is-neutral"><span class="label">نوع قرارداد</span><span class="value">${escapeHtml(CONTRACT_TYPE_LABELS[employee.contractType] ?? '—')}</span></div>
+      <div class="summary-card is-neutral"><span class="label">وضعیت</span><span class="value">${escapeHtml(EMPLOYEE_STATUS_LABELS[employee.status] ?? '—')}</span></div>
+    </div>
+
+    <table class="data-table profile-table">
+      <tbody>
+        <tr><th>کد پرسنلی</th><td dir="ltr">${escapeHtml(employee.personnelCode)}</td><th>کد ملی</th><td dir="ltr">${escapeHtml(employee.nationalId || '—')}</td></tr>
+        <tr><th>نام پدر</th><td>${escapeHtml(employee.fatherName || '—')}</td><th>تاریخ تولد</th><td class="num">${escapeHtml(localizeDigits(employee.birthDate || '—'))}</td></tr>
+        <tr><th>وضعیت تأهل</th><td>${escapeHtml(MARITAL_LABELS[employee.maritalStatus] ?? '—')}</td><th>تعداد فرزند</th><td class="num">${fmt(employee.childrenCount ?? 0)}</td></tr>
+        <tr><th>تاریخ استخدام</th><td class="num">${escapeHtml(localizeDigits(employee.hireDate || '—'))}</td><th>پایان قرارداد</th><td class="num">${escapeHtml(localizeDigits(employee.contractEndDate || '—'))}</td></tr>
+        <tr><th>واحد سازمانی</th><td>${unit ? `${escapeHtml(unit.title)} (کد ${escapeHtml(unit.code)})` : '—'}</td><th>شغل</th><td>${job ? `${escapeHtml(job.title)} (${escapeHtml(job.jobCode)})` : '—'}</td></tr>
+        <tr><th>سرپرست</th><td>${escapeHtml(employee.supervisorName || '—')}</td><th>بیمه</th><td>${employee.insured ? `بیمه‌شده${employee.insuranceNumber ? ` — ${escapeHtml(employee.insuranceNumber)}` : ''}` : 'غیربیمه'}</td></tr>
+        <tr><th>مزد شغل روزانه</th><td class="num">${employee.dailyJobWage ? fmt(employee.dailyJobWage) : '—'}</td><th>سنوات تجمیعی</th><td class="num">${employee.priorAccumulatedSeniority ? fmt(employee.priorAccumulatedSeniority) : '—'}</td></tr>
+      </tbody>
+    </table>
+
+    <h4>تاریخچه ارتقا و تغییر شغل</h4>
+    ${
+      history.length === 0
+        ? '<p class="muted small">هنوز تغییری ثبت نشده است. با فرم پایین، ارتقا یا تغییر گروه را با دلیل ثبت کنید.</p>'
+        : `<div class="table-wrap">
+            <table class="data-table profile-table">
+              <thead><tr><th>تاریخ</th><th>شغل قبلی</th><th>شغل جدید</th><th>گروه قبلی</th><th>گروه جدید</th><th>دلیل</th></tr></thead>
+              <tbody>
+                ${history
+                  .map(
+                    (row) => `<tr>
+                      <td class="num">${escapeHtml(localizeDigits(row.date || '—'))}</td>
+                      <td>${escapeHtml(row.fromJobTitle || row.fromJobCode || '—')}</td>
+                      <td>${escapeHtml(row.toJobTitle || row.toJobCode || '—')}</td>
+                      <td class="num">${row.fromGroup ? fmt(row.fromGroup) : '—'}</td>
+                      <td class="num">${row.toGroup ? fmt(row.toGroup) : '—'}</td>
+                      <td>${escapeHtml(row.reason || '—')}</td>
+                    </tr>`,
+                  )
+                  .join('')}
+              </tbody>
+            </table>
+          </div>`
+    }`;
+
+  const promoJob = document.getElementById('promo-job');
+  if (promoJob) {
+    promoJob.innerHTML =
+      '<option value="">— بدون تغییر —</option>' +
+      workshopJobs()
+        .map((row) => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.jobCode)} — ${escapeHtml(row.title)}</option>`)
+        .join('');
+    setElementValue(promoJob, employee.jobId ?? '');
+  }
+  const promoGroup = document.getElementById('promo-group');
+  if (promoGroup) {
+    promoGroup.innerHTML =
+      '<option value="">— بدون تغییر —</option>' +
+      Array.from({ length: 20 }, (_, index) => {
+        const group = index + 1;
+        return `<option value="${group}">گروه ${fmt(group)}</option>`;
+      }).join('');
+    setElementValue(promoGroup, employee.group ? String(employee.group) : '');
+  }
+  setElementValue(document.getElementById('promo-date'), todayJalali().replace(/\//g, '-'));
+  const message = document.getElementById('promo-msg');
+  if (message) message.textContent = '';
+}
+
+function openEmployeeProfile(id) {
+  const employee = employeeById(id);
+  if (!employee) return;
+  employeeProfileId = id;
+  renderEmployeeProfile(employee);
+  document.getElementById('emp-profile')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+
+function promoteEmployee(employeeId) {
+  const employee = employeeById(employeeId);
+  const message = document.getElementById('promo-msg');
+  if (!employee) {
+    if (message) message.textContent = 'ابتدا پرونده یک کارمند را باز کنید.';
+    return;
+  }
+  const date = toLatinDigitsLocal(document.getElementById('promo-date').value.trim()).replace(/\//g, '-');
+  const newJobId = selectValue(document.getElementById('promo-job'), '') || employee.jobId || null;
+  const groupValue = selectValue(document.getElementById('promo-group'), '');
+  const newGroup = groupValue ? Number(groupValue) : employee.group ?? null;
+  const reason = document.getElementById('promo-reason').value.trim();
+
+  const problems = [];
+  if (!isValidJalaliDate(date)) problems.push('تاریخ تغییر معتبر نیست (نمونه: 1405-04-01).');
+  if (!newJobId) problems.push('برای ثبت تغییر، شغل جدید را انتخاب کنید.');
+  if (newJobId === employee.jobId && newGroup === (employee.group ?? null)) {
+    problems.push('شغل و گروه جدید با وضعیت فعلی یکسان است.');
+  }
+  if (!reason) problems.push('دلیل یا مستند تغییر الزامی است.');
+  if (problems.length > 0) {
+    if (message) message.textContent = problems.join(' ');
+    return;
+  }
+
+  const currentJob = employeeJob(employee);
+  const newJob = jobById(newJobId);
+  const entry = {
+    at: new Date().toISOString(),
+    date,
+    fromJobId: employee.jobId ?? null,
+    fromJobCode: currentJob?.jobCode ?? null,
+    fromJobTitle: currentJob?.title ?? null,
+    toJobId: newJob?.id ?? null,
+    toJobCode: newJob?.jobCode ?? null,
+    toJobTitle: newJob?.title ?? null,
+    fromGroup: employee.group ?? null,
+    toGroup: newGroup,
+    reason,
+  };
+  const updated = {
+    ...employee,
+    jobId: newJob?.id ?? employee.jobId ?? null,
+    group: newGroup,
+    jobChanges: [...(employee.jobChanges ?? []), entry].slice(-50),
+    updatedAt: new Date().toISOString(),
+  };
+  writeStore({
+    ...state.store,
+    employees: state.store.employees.map((row) => (row.id === employee.id ? updated : row)),
+  });
+  renderEmployeeProfile(updated);
+  renderEmployeesTable();
+  const success = document.getElementById('promo-msg');
+  if (success) {
+    success.textContent = `تغییر ثبت شد: گروه ${updated.group ? fmt(updated.group) : '—'} — ${escapeHtml(newJob?.title ?? '')}`;
+  }
+  document.getElementById('promo-reason').value = '';
+  showToast('تاریخچه ارتقا ثبت شد');
+}
+
+function prefillWageFromEmployee(employee) {
+  const group = employee.group ?? employeeJob(employee)?.evaluation?.proposedGroup ?? null;
+  if (!group) {
+    showToast('برای این کارمند گروه شغلی تعیین نشده است؛ ابتدا گروه را ثبت کنید.');
+    return;
+  }
+  const groupSelect = document.getElementById('w-group');
+  if (groupSelect) setElementValue(groupSelect, String(group));
+  const accInput = document.getElementById('w-acc');
+  if (accInput && employee.priorAccumulatedSeniority) accInput.value = employee.priorAccumulatedSeniority;
+  const otherInput = document.getElementById('w-other');
+  if (otherInput && employee.otherDailyComponents) otherInput.value = employee.otherDailyComponents;
+  const serviceInput = document.getElementById('w-service');
+  if (serviceInput) serviceInput.value = employeeServiceYears(employee);
+  navigate('payroll');
+  showToast(`داده مزد ${employee.firstName} ${employee.lastName} در ماشین‌حساب بارگذاری شد`);
+}
+
+/* --------------------------- ورود و خروجی CSV --------------------------- */
+
+const CSV_HEADER_ALIASES = {
+  personnelcode: 'personnelCode',
+  'کد پرسنلی': 'personnelCode',
+  firstname: 'firstName',
+  'نام': 'firstName',
+  lastname: 'lastName',
+  'نام خانوادگی': 'lastName',
+  unitcode: 'unitCode',
+  'کد واحد': 'unitCode',
+  jobcode: 'jobCode',
+  'کد شغل': 'jobCode',
+  group: 'group',
+  'گروه': 'group',
+  contracttype: 'contractType',
+  'نوع قرارداد': 'contractType',
+  hiredate: 'hireDate',
+  'تاریخ استخدام': 'hireDate',
+  priorserviceyears: 'priorServiceYears',
+  'سابقه': 'priorServiceYears',
+  status: 'status',
+  'وضعیت': 'status',
+};
+const CSV_FIELDS = ['personnelCode', 'firstName', 'lastName', 'unitCode', 'jobCode', 'group', 'contractType', 'hireDate', 'priorServiceYears', 'status'];
+const CONTRACT_TYPE_FROM_FA = {
+  'دائم': 'PERMANENT',
+  'موقت': 'TEMPORARY',
+  'پیمانی': 'SERVICE',
+  'خدماتی': 'SERVICE',
+  'ساعتی': 'HOURLY',
+  'کارآموزی': 'APPRENTICE',
+};
+const EMPLOYEE_STATUS_FROM_FA = {
+  'فعال': 'ACTIVE',
+  'غیرفعال': 'INACTIVE',
+  'تعلیق': 'SUSPENDED',
+  'پایان کار': 'TERMINATED',
+};
+
+function splitCsvLine(line) {
+  const delimiter = line.includes('\t') ? '\t' : line.includes(';') ? ';' : ',';
+  return line.split(delimiter).map((cell) => cell.trim().replace(/^"|"$/g, ''));
+}
+
+function importEmployeesCsv(rawText) {
+  const text = String(rawText ?? '').replace(/^\uFEFF/, '');
+  const lines = text.split(/\r?\n/).filter((line) => line.trim() !== '');
+  const outcome = { added: 0, skipped: 0, errors: [], summary: '' };
+  if (lines.length === 0) {
+    outcome.summary = 'متنی برای پردازش وارد نشده است.';
+    return outcome;
+  }
+  const firstCells = splitCsvLine(lines[0]);
+  const headerKeys = firstCells.map((cell) => CSV_HEADER_ALIASES[cell.toLowerCase()] ?? CSV_HEADER_ALIASES[cell] ?? null);
+  const hasHeader = headerKeys.filter(Boolean).length >= 3;
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+  if (dataLines.length === 0) {
+    outcome.summary = 'ردیف داده‌ای پس از سرستون پیدا نشد.';
+    return outcome;
+  }
+
+  const created = [];
+  dataLines.forEach((line, index) => {
+    const cells = splitCsvLine(line);
+    const record = {};
+    CSV_FIELDS.forEach((field, fieldIndex) => {
+      const mappedIndex = hasHeader ? headerKeys.indexOf(field) : fieldIndex;
+      record[field] = mappedIndex >= 0 ? toLatinDigitsLocal(cells[mappedIndex] ?? '').trim() : '';
+    });
+    const rowNumber = index + (hasHeader ? 2 : 1);
+    if (!record.personnelCode) {
+      outcome.skipped += 1;
+      outcome.errors.push(`ردیف ${fmt(rowNumber)}: کد پرسنلی خالی است.`);
+      return;
+    }
+    if (!EMPLOYEE_CODE_PATTERN.test(record.personnelCode)) {
+      outcome.skipped += 1;
+      outcome.errors.push(`ردیف ${fmt(rowNumber)}: کد پرسنلی «${record.personnelCode}» معتبر نیست.`);
+      return;
+    }
+    const duplicate = [...workshopEmployees(), ...created].find(
+      (employee) => employee.personnelCode.toLowerCase() === record.personnelCode.toLowerCase(),
+    );
+    if (duplicate) {
+      outcome.skipped += 1;
+      outcome.errors.push(`ردیف ${fmt(rowNumber)}: کد «${record.personnelCode}» تکراری است.`);
+      return;
+    }
+    if (!record.firstName || !record.lastName) {
+      outcome.skipped += 1;
+      outcome.errors.push(`ردیف ${fmt(rowNumber)}: نام و نام خانوادگی الزامی است.`);
+      return;
+    }
+    const unit = record.unitCode ? workshopUnits().find((row) => row.code.toLowerCase() === record.unitCode.toLowerCase()) : null;
+    const job = record.jobCode ? workshopJobs().find((row) => row.jobCode.toLowerCase() === record.jobCode.toLowerCase()) : null;
+    const groupNumber = Number(record.group || 0);
+    const contract = CONTRACT_TYPE_FROM_FA[record.contractType] ?? (CONTRACT_TYPE_LABELS[record.contractType] ? record.contractType : 'TEMPORARY');
+    const status = EMPLOYEE_STATUS_FROM_FA[record.status] ?? (EMPLOYEE_STATUS_LABELS[record.status] ? record.status : 'ACTIVE');
+    const hireDate = record.hireDate && isValidJalaliDate(record.hireDate) ? record.hireDate : todayJalali().replace(/\//g, '-');
+    created.push({
+      id: newId('emp'),
+      workshopId: activeWorkshop()?.id ?? null,
+      personnelCode: record.personnelCode,
+      firstName: record.firstName,
+      lastName: record.lastName,
+      fatherName: '',
+      nationalId: '',
+      idNumber: '',
+      birthDate: '',
+      gender: 'M',
+      maritalStatus: 'MARRIED',
+      childrenCount: 0,
+      contractType: contract,
+      hireDate,
+      contractEndDate: '',
+      priorServiceYears: Math.max(0, Number(record.priorServiceYears || 0)),
+      status,
+      unitId: unit?.id ?? null,
+      jobId: job?.id ?? null,
+      group: groupNumber >= 1 && groupNumber <= 20 ? groupNumber : null,
+      supervisorName: '',
+      dailyJobWage: 0,
+      priorAccumulatedSeniority: 0,
+      otherDailyComponents: 0,
+      insured: true,
+      insuranceNumber: '',
+      notes: 'ورود گروهی CSV',
+      jobChanges: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    outcome.added += 1;
+  });
+
+  if (created.length > 0) {
+    writeStore({ ...state.store, employees: [...state.store.employees, ...created] });
+  }
+  const parts = [];
+  if (outcome.added > 0) parts.push(`${fmt(outcome.added)} کارمند افزوده شد.`);
+  if (outcome.skipped > 0) parts.push(`${fmt(outcome.skipped)} ردیف رد شد.`);
+  outcome.summary = parts.join(' ') || 'هیچ ردیفی افزوده نشد.';
+  return outcome;
+}
+
+function exportEmployeesCsv() {
+  const employees = workshopEmployees();
+  if (employees.length === 0) {
+    showToast('کارمندی برای خروجی وجود ندارد.');
+    return false;
+  }
+  const unitCode = (employee) => (employee.unitId ? unitById(employee.unitId)?.code ?? '' : '');
+  const jobCode = (employee) => (employee.jobId ? jobById(employee.jobId)?.jobCode ?? '' : '');
+  const lines = [
+    CSV_FIELDS.join(','),
+    ...employees.map((employee) =>
+      [
+        employee.personnelCode,
+        employee.firstName,
+        employee.lastName,
+        unitCode(employee),
+        jobCode(employee),
+        employee.group ?? '',
+        employee.contractType ?? '',
+        employee.hireDate ?? '',
+        employee.priorServiceYears ?? '',
+        employee.status ?? '',
+      ]
+        .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
+        .join(','),
+    ),
+  ];
+  const content = lines.join('\r\n');
+  const ok = downloadTextFile('employees.csv', content, 'text/csv;charset=utf-8');
+  if (ok) showToast(`خروجی CSV برای ${fmt(employees.length)} کارمند آماده شد`);
+  return ok;
+}
+
+function downloadTextFile(filename, content, mime) {
+  try {
+    if (typeof Blob === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+      showToast('خروجی فایل در این محیط پشتیبانی نمی‌شود.');
+      return false;
+    }
+    const blob = new Blob([`\uFEFF${content}`], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (error) {
+    showToast(`خروجی فایل ناموفق بود: ${error.message}`);
+    return false;
+  }
+}
+
 /* ================================== شروع ================================== */
 
 async function boot() {
@@ -3119,6 +3996,7 @@ async function boot() {
   initWorkshops();
   initOrg();
   initJobs();
+  initEmployees();
   initSettings();
 
   const printButton = document.getElementById('print-btn');
