@@ -414,11 +414,24 @@ function sidebarIsOpen() {
 }
 
 function setSidebarOpen(open) {
-  document.body.classList.toggle('sidebar-open', Boolean(open));
+  const isOpen = Boolean(open);
+  document.body.classList.toggle('sidebar-open', isOpen);
   const scrim = document.getElementById('sidebar-scrim');
-  if (scrim) scrim.hidden = !open;
+  if (scrim) scrim.hidden = !isOpen;
   const toggle = document.getElementById('menu-toggle');
-  if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    toggle.setAttribute('aria-label', isOpen ? 'بستن منو' : 'نمایش منو');
+  }
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar) {
+    const drawerMode =
+      typeof window.matchMedia === 'function'
+        ? window.matchMedia('(max-width: 900px)').matches
+        : Number(window.innerWidth ?? 0) <= 900;
+    if (drawerMode) sidebar.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+    else sidebar.removeAttribute('aria-hidden');
+  }
 }
 
 function initSidebarChrome() {
@@ -437,6 +450,20 @@ function initSidebarChrome() {
       setSidebarOpen(false);
       toggle?.focus?.();
     }
+  });
+
+  // هر انتخاب ماژول کشو را می‌بندد — حتی اگر مسیریابی به هر دلیلی اجرا نشود
+  document.getElementById('sidebar-nav')?.addEventListener('click', (event) => {
+    if (event.target?.closest?.('.nav-item')) setSidebarOpen(false);
+  });
+
+  window.addEventListener('hashchange', () => setSidebarOpen(false));
+  window.addEventListener('popstate', () => setSidebarOpen(false));
+
+  // با بزرگ‌شدن صفحه (چرخش تبلت/دسکتاپ) کشو نباید باز بماند
+  const desktopQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 901px)') : null;
+  desktopQuery?.addEventListener?.('change', (event) => {
+    if (event.matches) setSidebarOpen(false);
   });
 }
 
@@ -546,6 +573,12 @@ function initWageRows() {
   }
 }
 
+function chartWidth(container, fallback = 640) {
+  const measured = Math.round(container?.clientWidth ?? 0);
+  if (!measured) return fallback;
+  return Math.max(300, Math.min(720, measured));
+}
+
 function renderDashboard() {
   if (!state.data) return;
   const workshop = activeWorkshop();
@@ -616,7 +649,7 @@ function renderBarChart(rows1405, rows1404) {
     container.innerHTML = '<div class="empty-state">جدول مزد ۱۴۰۵ بارگذاری نشده است.</div>';
     return;
   }
-  const width = 640;
+  const width = chartWidth(container);
   const height = 230;
   const padding = { top: 14, right: 10, bottom: 26, left: 54 };
   const innerWidth = width - padding.left - padding.right;
@@ -663,7 +696,7 @@ function renderSeniorityChart() {
     container.innerHTML = '<div class="empty-state">جدول سنوات تجمیعی در دسترس نیست.</div>';
     return;
   }
-  const width = 640;
+  const width = chartWidth(container);
   const height = 230;
   const padding = { top: 14, right: 12, bottom: 26, left: 54 };
   const innerWidth = width - padding.left - padding.right;
@@ -7544,7 +7577,8 @@ function updateGuideMeta() {
   const target = document.getElementById('guide-meta');
   if (!target || !state.data) return;
   const role = currentRole();
-  const modules = ROLE_MODULES[role] ?? [];
+  const navRoutes = new Set([...document.querySelectorAll('.nav-item')].map((item) => item.dataset.route));
+  const modules = (ROLE_MODULES[role] ?? []).filter((route) => navRoutes.size === 0 || navRoutes.has(route));
   const workshop = activeWorkshop();
   const factors = state.data.factors?.filter((row) => row.systemCode === 'EVAL_1389_POINT_FACTOR') ?? [];
   target.innerHTML = [
@@ -7656,6 +7690,27 @@ function startApp() {
     });
   }
   window.addEventListener?.('afterprint', () => setPrintOrientation(false));
+
+  let chartResizeTimer = null;
+  window.addEventListener?.('resize', () => {
+    if (!state.started || !state.data) return;
+    clearTimeout(chartResizeTimer);
+    chartResizeTimer = setTimeout(() => {
+      if (!document.querySelector('#view-dashboard.is-active')) return;
+      renderBarChart(wageRowsOf(1405), wageRowsOf(1404));
+      renderSeniorityChart();
+    }, 220);
+  });
+
+  document.querySelectorAll('[data-action="print"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const route = document.querySelector('.nav-item.is-active')?.dataset?.route ?? DEFAULT_ROUTE;
+      doPrint({ landscape: LANDSCAPE_ROUTES.has(route) });
+    });
+  });
+  document.querySelectorAll('[data-action="logout"]').forEach((button) => {
+    button.addEventListener('click', () => document.getElementById('logout-btn')?.click());
+  });
 
   const banner = document.getElementById('offline-banner');
   if (banner) banner.hidden = false;

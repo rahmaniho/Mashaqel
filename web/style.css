@@ -70,6 +70,26 @@
   box-sizing: border-box;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* هیچ کارت/ستونی از عرض ناحیهٔ خودش بزرگ‌تر نشود (جلوگیری از سرریز افقی موبایل) */
+.app-main,
+.content,
+.view,
+.card,
+.kpi,
+.summary-card,
+.grid-2 > *,
+.field-grid > *,
+.guide-section,
+.guide-sections,
+.report-sheet {
+  min-width: 0;
+}
+
 html,
 body {
   margin: 0;
@@ -119,6 +139,9 @@ code {
   padding: 1px 5px;
   direction: ltr;
   display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   unicode-bidi: embed;
 }
 
@@ -539,6 +562,37 @@ code {
   margin-top: 6px;
   padding: 9px 16px 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.sidebar-actions {
+  display: none;
+  gap: 6px;
+  margin-bottom: 9px;
+}
+
+.sidebar-action {
+  flex: 1 1 0;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #d7e0f0;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar-action:hover,
+.sidebar-action:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(212, 175, 55, 0.45);
+  color: var(--white);
 }
 
 .sidebar-note {
@@ -1097,6 +1151,15 @@ input[dir='ltr'],
   gap: 4px;
   font-size: 12px;
   color: var(--ink-soft);
+  min-width: 0;
+}
+
+/* ورودی فایل در مرورگرهای موبایل عرض ذاتی بزرگ دارد */
+input[type='file'] {
+  width: 100%;
+  max-width: 100%;
+  font-size: 12px;
+  padding: 4px;
 }
 
 .stack {
@@ -1111,6 +1174,7 @@ input[dir='ltr'],
 .table-wrap {
   max-height: 420px;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
 }
@@ -1532,6 +1596,9 @@ input[dir='ltr'],
   .sidebar-close {
     display: inline-flex;
   }
+  .sidebar-actions {
+    display: flex;
+  }
   .sidebar-scrim {
     display: block;
     position: fixed;
@@ -1544,32 +1611,136 @@ input[dir='ltr'],
   .sidebar-scrim[hidden] {
     display: none;
   }
+  .sidebar {
+    visibility: hidden;
+    transition: transform 0.22s ease, visibility 0s linear 0.22s;
+  }
+  body.sidebar-open .sidebar {
+    visibility: visible;
+    transition: transform 0.22s ease, visibility 0s linear 0s;
+  }
+  body.sidebar-open {
+    overflow: hidden;
+  }
   .menu-toggle {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    flex: 0 0 auto;
   }
   .content {
-    padding: 14px 12px 30px;
+    padding: 12px 12px 28px;
   }
+
+  /* نوار بالا در موبایل: یک ردیف عنوان + یک ردیف کنترل‌های قابل اسکرول */
   .topbar {
-    padding: 10px 12px;
+    padding: 8px 12px;
+    gap: 8px 10px;
     flex-wrap: wrap;
+    align-items: center;
   }
   .topbar-title {
-    flex: 1 1 100%;
-    order: 3;
+    order: 2;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .topbar-title h1 {
+    font-size: 15.5px;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #page-subtitle {
+    display: none;
   }
   .topbar-actions {
+    order: 3;
+    flex: 1 1 100%;
     width: 100%;
+    flex-wrap: nowrap;
     justify-content: flex-start;
+    gap: 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .topbar-actions::-webkit-scrollbar {
+    display: none;
+  }
+  .topbar-actions > * {
+    flex: 0 0 auto;
+  }
+  .topbar-actions .ghost-btn {
+    min-height: 34px;
+    padding: 6px 12px;
+    font-size: 11.5px;
+  }
+  .badge-currency {
+    display: none;
+  }
+  .user-chip {
+    display: none;
   }
   .workshop-picker {
-    width: 100%;
+    width: auto;
+  }
+  .workshop-picker > span.small {
+    display: none;
   }
   .workshop-picker select {
-    flex: 1;
-    max-width: none;
+    max-width: 176px;
+    min-height: 34px;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  /* هدف‌های لمسی و جلوگیری از بزرگ‌نمایی iOS روی فوکوس فرم */
+  .primary-btn,
+  .ghost-btn,
+  .danger-btn,
+  .link-btn {
+    min-height: 38px;
+    padding: 8px 14px;
+  }
+  .icon-btn {
+    width: 38px;
+    height: 38px;
+  }
+  .guide-chip {
+    min-height: 34px;
+    padding: 7px 12px;
+    font-size: 12px;
+  }
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    min-height: 42px;
+    font-size: 16px;
+  }
+  textarea {
+    min-height: 84px;
+  }
+  .table-wrap {
+    box-shadow: inset 12px 0 12px -12px rgba(7, 19, 43, 0.28), inset -12px 0 12px -12px rgba(7, 19, 43, 0.28);
+  }
+  .badge {
+    white-space: normal;
+    max-width: 100%;
+    line-height: 1.6;
+    text-align: center;
+  }
+  .backend-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .backend-card,
+  .backend-grid > *,
+  .sync-row,
+  .env-rows,
+  .stack {
+    min-width: 0;
   }
   .field-grid,
   .field-grid.compact,
@@ -1587,6 +1758,17 @@ input[dir='ltr'],
   }
   .subtabs {
     overflow-x: auto;
+  }
+  .env-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .head-actions,
+  .form-actions {
+    width: 100%;
+  }
+  .head-actions > *,
+  .form-actions > * {
+    flex: 1 1 auto;
   }
 }
 
@@ -2160,8 +2342,17 @@ body.is-auth .toast {
 
 .guide-sections {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   margin-top: 14px;
+}
+
+/* لنگرهای پرش داخلی زیر نوار بالای چسبان پنهان نشوند */
+.guide-section,
+.card,
+.profile,
+form {
+  scroll-margin-top: 92px;
 }
 
 .guide-section[hidden] {
@@ -2219,9 +2410,17 @@ body.is-auth .toast {
   margin: 0;
   padding-inline-start: 18px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
   font-size: 12.5px;
   line-height: 1.85;
+}
+
+.guide-steps li,
+.guide-list li,
+.guide-errors li {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .guide-steps li::marker {
@@ -2472,5 +2671,98 @@ body.is-auth .toast {
   body.print-landscape .report-sheet,
   body.print-landscape .profile {
     max-width: 100% !important;
+  }
+}
+
+/* ============================================================================
+   اصلاحات چیدمان موبایل — پس از همهٔ قواعد پایه (اولویت در آبشار)
+   ============================================================================ */
+
+@media (max-width: 900px) {
+  .backend-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .backend-actions {
+    width: 100%;
+    min-width: 0;
+  }
+  .backend-actions > * {
+    flex: 1 1 auto;
+  }
+  .env-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .env-row > :last-child {
+    grid-column: 1 / -1;
+  }
+  .badge {
+    white-space: normal;
+    max-width: 100%;
+    line-height: 1.6;
+  }
+  .card-head > .badge,
+  .card-head > .chip {
+    flex: 0 1 auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .kpi-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .env-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .env-row > :last-child {
+    grid-column: auto;
+  }
+}
+
+/* --- اصلاحات تکمیلی موبایل: نوار بالا، جدول‌ها، نوارهای تب --- */
+@media (max-width: 560px) {
+  /* چاپ از منوی کناری در دسترس است؛ نوار بالا شلوغ نشود */
+  .topbar-actions #print-btn {
+    display: none;
+  }
+  .workshop-picker select {
+    max-width: 150px;
+  }
+  .topbar-actions {
+    scroll-snap-type: x proximity;
+    padding-inline: 2px;
+  }
+  .topbar-actions > * {
+    scroll-snap-align: start;
+  }
+
+  /* جدول‌ها: متن و پدینگ فشرده‌تر تا ستون‌های بیشتری جا شود */
+  .data-table {
+    font-size: 11px;
+  }
+  .data-table thead th {
+    font-size: 10.5px;
+    padding: 7px 7px;
+  }
+  .data-table tbody td {
+    padding: 6px 7px;
+  }
+  .table-wrap {
+    max-height: 62vh;
+  }
+}
+
+@media (max-width: 560px) {
+  /* نشان حالت اجرا در بنر محلی هم آمده؛ جای نوار بالا را نگیرد */
+  .topbar-actions #mode-chip {
+    display: none;
+  }
+  .topbar-actions .ghost-btn {
+    padding: 6px 10px;
+  }
+}
+
+@media (max-width: 380px) {
+  .workshop-picker select {
+    max-width: 128px;
   }
 }

@@ -163,6 +163,45 @@ navFilter.value = '';
 navFilter.dispatchEvent(new window.Event('input'));
 assert('جست‌وجوی منو: بازگشت به ۱۳ ماژول', [...document.querySelectorAll('.nav-item')].filter((item) => !item.hidden).length === 13, String([...document.querySelectorAll('.nav-item')].filter((item) => !item.hidden).length));
 
+/* --------------------- کشوی منوی موبایل (رفع باگ «منو باز می‌ماند») --------------------- */
+
+assert('کشو: پردهٔ تاریک وجود دارد', document.querySelector('#sidebar-scrim') !== null);
+assert('کشو: در حالت اولیه بسته است', document.body.classList.contains('sidebar-open') === false && document.querySelector('#sidebar-scrim')?.hidden === true);
+click('#menu-toggle');
+assert(
+  'کشو: باز شدن با کلید ☰',
+  document.body.classList.contains('sidebar-open') &&
+    document.querySelector('#sidebar-scrim')?.hidden === false &&
+    document.querySelector('#menu-toggle')?.getAttribute('aria-expanded') === 'true',
+);
+click('.nav-item[data-route="guide"]');
+assert(
+  'کشو: پس از انتخاب «آموزش سامانه» بسته می‌شود',
+  document.body.classList.contains('sidebar-open') === false && document.querySelector('#sidebar-scrim')?.hidden === true,
+);
+click('#menu-toggle');
+const escapeEvent = new window.Event('keydown');
+escapeEvent.key = 'Escape';
+document.dispatchEvent(escapeEvent);
+assert('کشو: بسته شدن با Esc', document.body.classList.contains('sidebar-open') === false);
+click('#menu-toggle');
+click('#sidebar-scrim');
+assert('کشو: بسته شدن با لمس پرده', document.body.classList.contains('sidebar-open') === false);
+click('#sidebar-close');
+assert('کشو: بسته ماندن پس از دکمهٔ ✕', document.body.classList.contains('sidebar-open') === false);
+click('.nav-item[data-route="dashboard"]');
+assert('کشو: بازگشت به داشبورد پس از آزمون کشو', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
+
+/* --------------------- محافظ‌های چیدمان موبایل (قواعد CSS) --------------------- */
+
+const webCss = readFileSync(resolve(root, 'web/style.css'), 'utf8');
+assert('موبایل: ستون شبکهٔ راهنما مقید شده است', /\.guide-sections\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s.test(webCss));
+assert('موبایل: فهرست گام‌های راهنما مقید شده است', /\.guide-steps\s*li[^{]*\{[^}]*overflow-wrap:\s*anywhere/s.test(webCss));
+assert('موبایل: ورودی فایل از عرض کارت بیرون نمی‌زند', /input\[type='file'\]\s*\{[^}]*max-width:\s*100%/s.test(webCss));
+assert('موبایل: نوار بالا در ارتفاع کم جمع می‌شود', /\.topbar-actions\s*\{[^}]*overflow-x:\s*auto/s.test(webCss));
+assert('موبایل: متن ورودی‌ها ۱۶px است (بدون بزرگ‌نمایی iOS)', /font-size:\s*16px/.test(webCss));
+assert('موبایل: اسکرول پس‌زمینه با کشوی باز قفل می‌شود', /body\.sidebar-open\s*\{[^}]*overflow:\s*hidden/s.test(webCss));
+
 assert('داشبورد پیش‌فرض فعال است', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
 
 click('.nav-item[data-route="group"]');
