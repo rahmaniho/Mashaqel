@@ -3,7 +3,38 @@
    تم سازمانی: سرمه‌ای، سفید، طلایی — RTL
    ============================================================= */
 
-@import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
+/* قلم وزیرمتن به‌صورت محلی میزبانی می‌شود (بدون وابستگی به CDN و قابل استفاده در چاپ/آفلاین) */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/Vazirmatn-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/Vazirmatn-Medium.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/Vazirmatn-SemiBold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/Vazirmatn-Bold.woff2') format('woff2');
+}
 
 :root {
   --navy-950: #07132b;
@@ -1867,11 +1898,13 @@ body.is-auth .toast {
   margin: 12px 0 4px;
 }
 
-.guide-figure svg {
+.guide-figure img {
   display: block;
   width: 100%;
   height: auto;
+  border: 1px solid var(--line);
   border-radius: 10px;
+  background: var(--white);
 }
 
 .guide-figure figcaption {
@@ -2017,6 +2050,16 @@ body.is-auth .toast {
   h3 {
     break-inside: avoid;
     break-after: avoid-page;
+  }
+
+  td.actions-cell,
+  th.actions-cell,
+  .actions-cell {
+    display: none !important;
+  }
+
+  table:has(td.actions-cell) thead th:last-child {
+    display: none !important;
   }
 
   .data-table thead th,

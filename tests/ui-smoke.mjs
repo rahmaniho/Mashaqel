@@ -5,7 +5,7 @@
  * اجرا: npm run test:web-ui   (پیش‌نیاز: npm run export:web)
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseHTML } from 'linkedom';
@@ -173,12 +173,21 @@ assert('آموزش: ۱۹ بخش', document.querySelectorAll('#guide-sections .gu
 assert('آموزش: فهرست موضوعی', document.querySelectorAll('#guide-toc .guide-chip').length === 19, String(document.querySelectorAll('#guide-toc .guide-chip').length));
 assert('آموزش: هر بخش گام دارد', [...document.querySelectorAll('#guide-sections .guide-steps')].every((list) => list.querySelectorAll('li').length >= 4));
 assert('آموزش: هر بخش خطاهای رایج دارد', [...document.querySelectorAll('#guide-sections .guide-errors')].every((list) => list.querySelectorAll('li').length >= 1));
-assert('آموزش: تصویر شماتیک برای هر بخش', document.querySelectorAll('#guide-sections .guide-figure').length === 19, String(document.querySelectorAll('#guide-sections .guide-figure').length));
-assert('آموزش: عنوان تصویرها', [...document.querySelectorAll('#guide-sections .guide-figure figcaption')].every((caption) => caption.textContent.includes('نمای شماتیک')));
-assert('آموزش: تصاویر دسترس‌پذیر (role و title)', [...document.querySelectorAll('#guide-sections .guide-figure svg')].every((svg) => svg.getAttribute('role') === 'img' && svg.querySelector('title') !== null));
-assert('آموزش: تصاویر درون‌خطی و بدون منبع خارجی', document.querySelectorAll('#guide-sections .guide-figure svg image, #guide-sections .guide-figure svg use[href]').length === 0);
-contains('آموزش: قاب تصویر با نام سامانه', text('#view-guide'), 'مشاغل — داشبورد');
-contains('آموزش: تصویر جدول حقوق', text('#view-guide'), 'فیش حقوقی ماهانه');
+assert('آموزش: تصویر واقعی برای هر بخش', document.querySelectorAll('#guide-sections .guide-figure').length === 19, String(document.querySelectorAll('#guide-sections .guide-figure').length));
+assert('آموزش: هر بخش تصویر دارد', document.querySelectorAll('#guide-sections .guide-figure img').length === 19, String(document.querySelectorAll('#guide-sections .guide-figure img').length));
+assert('آموزش: عنوان تصویرها', [...document.querySelectorAll('#guide-sections .guide-figure figcaption')].every((caption) => caption.textContent.includes('تصویر واقعی')));
+assert('آموزش: متن جانشین توصیفی', [...document.querySelectorAll('#guide-sections .guide-figure img')].every((img) => (img.getAttribute('alt') ?? '').includes('تصویر واقعی صفحه')));
+assert('آموزش: مسیر محلی تصویرها', [...document.querySelectorAll('#guide-sections .guide-figure img')].every((img) => /^\.\/assets\/guide\/[a-z-]+\.webp$/.test(img.getAttribute('src') ?? '')));
+assert('آموزش: بدون منبع خارجی', [...document.querySelectorAll('#guide-sections .guide-figure img')].every((img) => !/^https?:/i.test(img.getAttribute('src') ?? '')));
+{
+  const sources = [...document.querySelectorAll('#guide-sections .guide-figure img')].map((img) => img.getAttribute('src'));
+  assert('آموزش: تصویر یکتا برای هر بخش', new Set(sources).size === 19, String(new Set(sources).size));
+  assert(
+    'آموزش: فایل تصویرها موجود است',
+    sources.every((src) => existsSync(resolve(root, 'web', (src ?? '').replace('./', '')))),
+    sources.filter((src) => !existsSync(resolve(root, 'web', (src ?? '').replace('./', '')))).join(', '),
+  );
+}
 contains('آموزش: اطلاعات نسخه', text('#guide-meta'), 'نسخه سامانه');
 contains('آموزش: نقش کاربر', text('#guide-meta'), 'مدیر سامانه');
 contains('آموزش: راهنمای چاپ', text('#view-guide'), 'چاپ راهنما');
