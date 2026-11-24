@@ -1,63 +1,109 @@
-# SideBar UI — Glassmorphism collapsible sidebar
+# SideBar UI — سایدبار شیشه‌ای سامانه «مشاغل»
 
-A polished, fully collapsible navigation rail built with **React 18 + Tailwind CSS + lucide-react**.
-Dark frosted glass, edge-to-edge red active row, 500 ms spring-ish collapse, keyboard shortcut `⌘B / Ctrl+B`.
+نسخهٔ نمایشی و آمادهٔ اجرای سایدبار و صفحهٔ داشبورد، **هماهنگ‌شده با برنامهٔ واقعی «مشاغل»**:
+همان ۱۳ آیتم منو در ۴ گروه، راست‌به‌چپ، فونت وزیرمتن و پالت سرمه‌ای/طلایی سامانه.
 
-## Run it
+ساخته‌شده با **React 18 + Tailwind CSS + lucide-react**؛ شیشهٔ تارِ تیره، ردیف فعال قرمز
+لبه‌به‌لبه، جمع‌شدن ۵۰۰ میلی‌ثانیه‌ای، و میان‌بر `⌘B / Ctrl+B`.
+
+## اجرا
 
 ```bash
 cd sidebar-ui
 npm install
 npm run dev        # http://localhost:5180
+npm run build      # خروجی استاتیک در dist/
+npm run preview    # http://localhost:5181
 ```
 
-`npm run build` produces a static bundle in `dist/`.
+## هماهنگی با سامانهٔ اصلی
 
-## Drop it into an existing project
+منوی سایدبار **یک منبع حقیقت** دارد: `src/menu.js` — آرایهٔ `APP_MENU`.
+
+| گروه | آیتم‌ها |
+| --- | --- |
+| عملیات اصلی | داشبورد · مدیریت کارگاه‌ها · ساختار سازمانی · بانک مشاغل `۳` |
+| ارزیابی و طبقه‌بندی | ارزیابی مشاغل `۲` · تعیین گروه شغلی |
+| کارکنان و مزد | مدیریت کارکنان · محاسبات حقوق و دستمزد · محاسبه معوقات |
+| سامانه | گزارش‌ها · آموزش سامانه · تنظیمات · مدیریت کاربران |
+
+شناسهٔ هر آیتم (`id`) دقیقاً همان `data-route` دکمه‌های ناوبری در `web/index.html` است
+(`dashboard`, `workshops`, `org`, `jobs`, `evaluation`, `group`, `employees`, `payroll`,
+`arrears`, `reports`, `guide`, `settings`, `users`)؛ پس اگر روت تازه‌ای به سامانه اضافه شد،
+فقط یک شیء به `APP_MENU` اضافه کنید و آیکون lucide + badge اختیاری بدهید:
+
+```js
+{ id: 'reports', label: 'گزارش‌ها', icon: FileBarChart }
+{ id: 'jobs', label: 'بانک مشاغل', icon: Briefcase, badge: 3 }
+```
+
+اعداد badge با `toLocaleString('fa-IR')` فارسی می‌شوند.
+
+## استفاده در پروژهٔ خودتان
 
 1. `npm i lucide-react`
-2. Copy `src/components/Sidebar.jsx` and the avatar (`src/assets/avatar.webp`).
-3. Make sure Tailwind scans the file (`content: ['./src/**/*.{js,jsx}']`).
-4. Render `<Sidebar />` inside a relatively-positioned, dark container — the glass needs
-   something colourful behind it for the `backdrop-blur-xl` to read.
+2. فایل‌های `src/components/Sidebar.jsx`، `src/menu.js`، `src/hooks/useMediaQuery.js` و
+   `src/assets/avatar.webp` را کپی کنید.
+3. مطمئن شوید Tailwind این فایل‌ها را اسکن می‌کند (`content: ['./src/**/*.{js,jsx}']`).
+4. `<Sidebar />` را داخل یک ظرف تیره و `relative` بگذارید تا `backdrop-blur-xl` دیده شود.
 
 ```jsx
 import Sidebar from './components/Sidebar';
 
 export default function Layout() {
   return (
-    <div className="flex min-h-dvh gap-6 bg-[#07070a] p-4">
+    <div dir="rtl" className="flex min-h-dvh gap-6 bg-[#07070a] p-4">
       <Sidebar />
-      <main className="min-w-0 flex-1">{/* your content */}</main>
+      <main className="min-w-0 flex-1">{/* محتوای شما */}</main>
     </div>
   );
 }
 ```
 
-## Responsive behaviour
+## واکنش‌گرایی
 
-| Viewport | Sidebar | Content |
+| اندازهٔ صفحه | سایدبار | محتوا |
 | --- | --- | --- |
-| **< 768px** (phones) | Off-canvas drawer, hidden by default, opened from the sticky top bar. Scrim, ESC, scrim-tap and picking a nav item all close it; body scroll locks; focus moves in and returns to the ☰ button; closed drawer is `inert` + `aria-hidden`. | 1-column, full-width buttons, 44px touch targets, safe-area padding. |
-| **768–1023px** (tablets) | In-flow icon rail (92px) that expands to 336px in place, pushing the content (no overlay). | Auto-fit card grid, breadcrumb header, condensed meta. |
-| **≥ 1024px** (desktop) | In-flow floating glass card, 336px, collapsible with the pill or `⌘B`. | Auto-fit cards (240px min), layout capped at 1560px and centred. |
+| **< 768px** (موبایل) | کشوی off-canvas، پیش‌فرض بسته، باز شدن با نوار بالای چسبان. بستن با اسکریم، `Esc`، لمس اسکریم یا انتخاب هر آیتم؛ قفل اسکرول بدنه؛ بازگشت فوکوس به دکمهٔ ☰؛ کشوی بسته `inert` + `aria-hidden` است و ارتفاع ثابت (`100dvh`) با اسکرول داخلی منو دارد. | یک ستونه، دکمه‌های تمام‌عرض، هدف لمسی ۴۴px، پدینگ safe-area. |
+| **768–1023px** (تبلت) | ریلی درون‌جریان (۹۲px) که در محل به ۳۳۶px باز می‌شود و محتوا را هل می‌دهد (بدون اورلی). | شبکهٔ کارت خودچین، هدر breadcrumb، متادیتای خلاصه. |
+| **≥ 1024px** (دسکتاپ) | کارت شیشه‌ای شناور درون‌جریان، ۳۳۶px، جمع‌شدنی با پیل یا `⌘B`. | کارت‌های خودچین (حداقل ۲۴۰px)، عرض کل صفحه سقف ۱۵۶۰px و وسط‌چین. |
 
-The demo page (`src/App.jsx`) wires the drawer: it owns `navOpen`, renders the mobile top bar and passes
-`mobileOpen` / `onMobileClose` down.
+صفحهٔ نمایشی (`src/App.jsx`) مالک `navOpen` است: نوار بالای موبایل را می‌سازد و
+`mobileOpen` / `onMobileClose` را به سایدبار می‌دهد.
 
 ## API
 
-| Prop | Type | Default | Notes |
+| پراپ | نوع | پیش‌فرض | توضیح |
 | --- | --- | --- | --- |
-| `initialCollapsed` | `boolean` | auto (`window.innerWidth < 1024`) | Forces the initial rail state on tablet/desktop. |
-| `mobileOpen` | `boolean` | `false` | Drawer visibility **below 768px** (ignored on larger screens). |
-| `onMobileClose` | `() => void` | – | Called by the scrim, the ✕ button, `Esc`, or after a nav item is chosen. |
+| `initialCollapsed` | `boolean` | خودکار (`window.innerWidth < 1024`) | حالت اولیهٔ ریل در تبلت/دسکتاپ. |
+| `mobileOpen` | `boolean` | `false` | نمایش کشو **زیر 768px** (در بزرگ‌تر نادیده گرفته می‌شود). |
+| `onMobileClose` | `() => void` | – | با اسکریم، دکمهٔ ✕، `Esc` یا انتخاب آیتم صدا زده می‌شود. |
+| `direction` | `'rtl' \| 'ltr'` | `'rtl'` | جهت آیکون جمع‌شدن و پدینگ‌ها. |
 
-## Behaviour
+## رفتار
 
-- **Expanded:** 336 px — traffic lights, title, bell (badge 4), “Collapse” pill, profile, search, grouped nav.
-- **Collapsed:** 92 px — icons only, labels/search/profile text fade to zero width, tooltips via `title`,
-  badges become dots, section titles become hairlines.
-- Active item: `bg-red-600`, edge-to-edge, filled white `Home` icon.
-- Hover: `hover:bg-white/5`; focus ring for keyboard users; `aria-expanded` / `aria-current` / `aria-label`.
-- `⌘B` / `Ctrl+B` toggles; `prefers`-independent CSS transitions only (no layout libraries).
+- **باز (۳۳۶px):** چراغ‌های ترافیک macOS، عنوان «مشاغل» + زیرعنوان، زنگ با badge «۴»،
+  پیل «جمع کردن»، کارت کاربر («مهندس سارا موسوی»)، جست‌وجو با `⌘K`، منوی گروه‌بندی‌شده،
+  فوتر «نسخه ۱.۰.۰ · داده‌های محلی».
+- **بسته (۹۲px):** فقط آیکون‌ها؛ برچسب‌ها و متن‌ها به عرض صفر محو می‌شوند (بدون متن بریده)،
+  tooltip با `title`، badgeها به نقطه تبدیل می‌شوند، عنوان گروه‌ها به خط مویی.
+- آیتم فعال: `bg-red-600` لبه‌به‌لبه، آیکون توپر سفید، `aria-current="page"`.
+- هاور `hover:bg-white/5`؛ حلقهٔ فوکوس برای کیبورد؛ `aria-expanded` / `aria-label`؛
+  بستن با `Esc` در حالت کشو.
+
+## ساختار
+
+```
+src/
+├── menu.js                    # APP_MENU — منبع حقیقت منو
+├── components/Sidebar.jsx     # سایدبار (کارت / ریل / کشو)
+├── hooks/useMediaQuery.js
+├── App.jsx                    # داشبورد نمایشی «مشاغل»
+├── index.css                  # @font-face وزیرمتن (۴ وزن، محلی)
+└── assets/
+    ├── avatar.webp
+    └── fonts/*.woff2          # Vazirmatn — مجوز OFL
+```
+
+فونت‌ها از `web/fonts/` سامانه کپی شده‌اند و متن مجوز در `src/assets/fonts/OFL.txt` است؛
+هیچ منبع شبکه‌ای لازم نیست و همه‌چیز آفلاین کار می‌کند.
