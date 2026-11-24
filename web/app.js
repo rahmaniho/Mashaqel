@@ -363,7 +363,7 @@ function navigate(route, options = {}) {
   const subtitle = document.getElementById('page-subtitle');
   if (title) title.textContent = ROUTES[target].title;
   if (subtitle) subtitle.textContent = ROUTES[target].subtitle;
-  document.body.classList.remove('sidebar-open');
+  setSidebarOpen(false);
   if (!options.silent) {
     try {
       const hash = `#/${target}`;
@@ -407,6 +407,94 @@ function currentHashRoute() {
   }
 }
 
+/* ------------------------- پوستهٔ منوی کناری (کشو) ------------------------- */
+
+function sidebarIsOpen() {
+  return document.body.classList.contains('sidebar-open');
+}
+
+function setSidebarOpen(open) {
+  document.body.classList.toggle('sidebar-open', Boolean(open));
+  const scrim = document.getElementById('sidebar-scrim');
+  if (scrim) scrim.hidden = !open;
+  const toggle = document.getElementById('menu-toggle');
+  if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function initSidebarChrome() {
+  const toggle = document.getElementById('menu-toggle');
+  const scrim = document.getElementById('sidebar-scrim');
+  const close = document.getElementById('sidebar-close');
+  setSidebarOpen(sidebarIsOpen());
+  toggle?.addEventListener('click', () => setSidebarOpen(!sidebarIsOpen()));
+  scrim?.addEventListener('click', () => setSidebarOpen(false));
+  close?.addEventListener('click', () => {
+    setSidebarOpen(false);
+    toggle?.focus?.();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && sidebarIsOpen()) {
+      setSidebarOpen(false);
+      toggle?.focus?.();
+    }
+  });
+}
+
+/* --------------------- جست‌وجو در فهرست ماژول‌ها --------------------- */
+
+const NAV_SEARCH_MAP = { ك: 'ک', ي: 'ی', '\u200c': '' };
+
+function normalizeNavText(value) {
+  return String(value ?? '')
+    .replace(/[كي\u200c]/g, (char) => NAV_SEARCH_MAP[char] ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function initNavFilter() {
+  const input = document.getElementById('nav-filter');
+  const nav = document.getElementById('sidebar-nav');
+  if (!input || !nav) return;
+  const groups = [...nav.querySelectorAll('.nav-group')];
+  const empty = document.getElementById('nav-empty');
+  const apply = () => {
+    const needle = normalizeNavText(input.value);
+    let visible = 0;
+    groups.forEach((group) => {
+      let shown = 0;
+      group.querySelectorAll('.nav-item').forEach((item) => {
+        const label = item.querySelector('.nav-label')?.textContent ?? item.textContent;
+        const match = !needle || normalizeNavText(label).includes(needle);
+        item.hidden = !match;
+        if (match) shown += 1;
+      });
+      group.hidden = shown === 0;
+      visible += shown;
+    });
+    if (empty) empty.hidden = visible !== 0;
+  };
+  input.addEventListener('input', apply);
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      input.value = '';
+      apply();
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && String(event.key).toLowerCase() === 'k') {
+      event.preventDefault();
+      input.focus();
+      input.select?.();
+      return;
+    }
+    if (event.key === 'Escape' && input.value) {
+      input.value = '';
+      apply();
+    }
+  });
+  apply();
+}
+
 function initRouter() {
   document.querySelectorAll('.nav-item').forEach((item) => {
     item.addEventListener('click', () => {
@@ -418,10 +506,7 @@ function initRouter() {
     if (element.classList.contains('nav-item')) return;
     element.addEventListener('click', () => navigate(element.dataset.route));
   });
-  const toggle = document.getElementById('menu-toggle');
-  if (toggle) {
-    toggle.addEventListener('click', () => document.body.classList.toggle('sidebar-open'));
-  }
+  initSidebarChrome();
   window.addEventListener('hashchange', () => {
     const route = currentHashRoute();
     if (route) navigate(route, { silent: true });
@@ -508,6 +593,20 @@ function renderDashboard() {
   renderSeniorityChart();
   renderDataStatus();
   renderLimitations();
+  renderNavBadges();
+}
+
+function renderNavBadges() {
+  const jobs = workshopJobs();
+  const pending = jobs.filter((job) => !job.evaluation).length;
+  const set = (key, count) => {
+    const badge = document.querySelector(`.nav-badge[data-badge="${key}"]`);
+    if (!badge) return;
+    badge.hidden = !count;
+    badge.textContent = count ? fmt(count) : '';
+  };
+  set('jobs', jobs.length);
+  set('evaluation', pending);
 }
 
 function renderBarChart(rows1405, rows1404) {
@@ -6390,6 +6489,14 @@ function applyAccessControl() {
   const user = currentUser();
   const chip = document.getElementById('user-chip');
   if (chip && user) chip.textContent = `${user.fullName} — ${ROLE_LABELS[user.role] ?? user.role}`;
+  if (user) {
+    const sideName = document.getElementById('sidebar-user-name');
+    const sideRole = document.getElementById('sidebar-user-role');
+    const sideInitial = document.getElementById('sidebar-user-initial');
+    if (sideName) sideName.textContent = user.fullName;
+    if (sideRole) sideRole.textContent = ROLE_LABELS[user.role] ?? user.role;
+    if (sideInitial) sideInitial.textContent = String(user.fullName ?? 'م').trim().charAt(0);
+  }
   document.body.classList.toggle('is-readonly', (ROLE_WRITE[role] ?? []).length === 0);
   if (state.started) refreshScopedViews();
 }
@@ -7522,6 +7629,7 @@ function startApp() {
   state.started = true;
   initWageRows();
   initRouter();
+  initNavFilter();
   initSubtabs();
   initDigits();
   initWage();
