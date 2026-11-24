@@ -34,11 +34,24 @@ export default function Layout() {
 }
 ```
 
+## Responsive behaviour
+
+| Viewport | Sidebar | Content |
+| --- | --- | --- |
+| **< 768px** (phones) | Off-canvas drawer, hidden by default, opened from the sticky top bar. Scrim, ESC, scrim-tap and picking a nav item all close it; body scroll locks; focus moves in and returns to the ☰ button; closed drawer is `inert` + `aria-hidden`. | 1-column, full-width buttons, 44px touch targets, safe-area padding. |
+| **768–1023px** (tablets) | In-flow icon rail (92px) that expands to 336px in place, pushing the content (no overlay). | Auto-fit card grid, breadcrumb header, condensed meta. |
+| **≥ 1024px** (desktop) | In-flow floating glass card, 336px, collapsible with the pill or `⌘B`. | Auto-fit cards (240px min), layout capped at 1560px and centred. |
+
+The demo page (`src/App.jsx`) wires the drawer: it owns `navOpen`, renders the mobile top bar and passes
+`mobileOpen` / `onMobileClose` down.
+
 ## API
 
 | Prop | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `initialCollapsed` | `boolean` | auto (`window.innerWidth < 1024`) | Forces the first state; afterwards it is internal. |
+| `initialCollapsed` | `boolean` | auto (`window.innerWidth < 1024`) | Forces the initial rail state on tablet/desktop. |
+| `mobileOpen` | `boolean` | `false` | Drawer visibility **below 768px** (ignored on larger screens). |
+| `onMobileClose` | `() => void` | – | Called by the scrim, the ✕ button, `Esc`, or after a nav item is chosen. |
 
 ## Behaviour
 
