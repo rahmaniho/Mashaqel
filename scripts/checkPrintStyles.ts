@@ -35,6 +35,8 @@ check('CSS: تکرار سرستون جدول در صفحات', /thead\s*\{\s*dis
 check('CSS: جلوگیری از شکستن ردیف‌ها', /tr,[\s\S]{0,120}break-inside:\s*avoid/.test(printCss));
 check('CSS: چاپ رنگ پس‌زمینه سرستون', /print-color-adjust:\s*exact/.test(printCss));
 check('CSS: پنهان‌سازی .no-print', /\.no-print/.test(printCss));
+check('CSS: حذف ستون عملیات در چاپ', /\.actions-cell\s*\{\s*display:\s*none\s*!important/.test(printCss));
+check('CSS: حذف سرستون عملیات در چاپ', /table:has\(td\.actions-cell\)[^{]*th:last-child/.test(printCss));
 check('CSS: پنهان‌سازی نوار ابزار', /\.toolbar/.test(printCss));
 check('CSS: پنهان‌سازی فرم‌های ورودی', /input,[\s\S]{0,40}button/.test(printCss));
 check('CSS: فقط نمای فعال چاپ می‌شود', /\.view:not\(\.is-active\)/.test(printCss));
