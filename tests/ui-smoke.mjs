@@ -152,6 +152,16 @@ const setupDone = await waitFor(() => document.querySelector('#auth-gate')?.hidd
 assert('امنیت: راه‌اندازی و ورود مدیر', setupDone);
 assert('امنیت: منوی کامل برای مدیر', [...document.querySelectorAll('.nav-item')].filter((item) => !item.disabled).length === 13, String([...document.querySelectorAll('.nav-item')].filter((item) => !item.disabled).length));
 contains('امنیت: نشان کاربر', text('#user-chip'), 'مدیر نمونه');
+assert('کارت کاربر منو: نام', text('#sidebar-user-name') === 'مدیر نمونه', text('#sidebar-user-name'));
+assert('کارت کاربر منو: نقش', text('#sidebar-user-role') === 'مدیر سامانه', text('#sidebar-user-role'));
+
+const navFilter = document.querySelector('#nav-filter');
+navFilter.value = 'حقوق';
+navFilter.dispatchEvent(new window.Event('input'));
+assert('جست‌وجوی منو: فیلتر ماژول', [...document.querySelectorAll('.nav-item')].filter((item) => !item.hidden).length === 1, String([...document.querySelectorAll('.nav-item')].filter((item) => !item.hidden).length));
+navFilter.value = '';
+navFilter.dispatchEvent(new window.Event('input'));
+assert('جست‌وجوی منو: بازگشت به ۱۳ ماژول', [...document.querySelectorAll('.nav-item')].filter((item) => !item.hidden).length === 13, String([...document.querySelectorAll('.nav-item')].filter((item) => !item.hidden).length));
 
 assert('داشبورد پیش‌فرض فعال است', document.querySelector('#view-dashboard')?.classList.contains('is-active'));
 
@@ -311,6 +321,13 @@ assert('ثبت شغل: یک ردیف', document.querySelectorAll('#jobs-table tb
 assert('ثبت شغل: عنوان در جدول', text('#jobs-table').includes('جوشکار تأسیسات'));
 assert('ثبت شغل: شمارنده', text('#jobs-count').includes('۱ شغل'), text('#jobs-count'));
 assert('ذخیره‌سازی شغل', (localStorage.getItem('mashaqel.state.v2') ?? '').includes('J-1001'));
+assert('نشان منو: شمارش بانک مشاغل', text('.nav-badge[data-badge="jobs"]') === fa(1), text('.nav-badge[data-badge="jobs"]'));
+assert(
+  'نشان منو: شغل در انتظار ارزیابی',
+  document.querySelector('.nav-badge[data-badge="evaluation"]')?.hidden === false &&
+    text('.nav-badge[data-badge="evaluation"]') === fa(1),
+  text('.nav-badge[data-badge="evaluation"]'),
+);
 assert('فیلتر واحد سازمانی', (document.querySelector('#jobs-filter-unit')?.innerHTML ?? '').includes('تولید — مونتاژ'));
 
 submitJob({
@@ -368,6 +385,13 @@ assert('ثبت ارزیابی در شغل', text('#eval-save-msg').includes('ث�
 const savedJob = JSON.parse(localStorage.getItem('mashaqel.state.v2')).jobs.find((job) => job.id === storedJobId);
 assert('ارزیابی ذخیره‌شده: امتیاز ۳۲۳', savedJob?.evaluation?.totalScore === 323, String(savedJob?.evaluation?.totalScore));
 assert('ارزیابی ذخیره‌شده: گروه ۱۲', savedJob?.evaluation?.proposedGroup === 12, String(savedJob?.evaluation?.proposedGroup));
+assert('نشان منو: دو شغل ثبت‌شده', text('.nav-badge[data-badge="jobs"]') === fa(2), text('.nav-badge[data-badge="jobs"]'));
+assert(
+  'نشان منو: یک شغل هنوز ارزیابی نشده',
+  document.querySelector('.nav-badge[data-badge="evaluation"]')?.hidden === false &&
+    text('.nav-badge[data-badge="evaluation"]') === fa(1),
+  text('.nav-badge[data-badge="evaluation"]'),
+);
 
 click('.nav-item[data-route="jobs"]');
 const firstJobRow = [...document.querySelectorAll('#jobs-table tbody tr')][0]?.textContent?.replace(/\s+/g, ' ') ?? '';
